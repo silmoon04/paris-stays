@@ -20,6 +20,26 @@
       .startup-status { font-size:15px; color:#717171; }
       .startup-retry { padding:12px 20px; background:#fff; border:1px solid #ddd; border-radius:10px; cursor:pointer; font:inherit; }
     </style>
+    <script>
+      function showStartupRecovery(failed) {
+        var message = document.querySelector('.startup-status');
+        var retry = document.querySelector('.startup-retry');
+        if (!message || !retry) return;
+        message.textContent = failed
+          ? 'The app could not load. Check your connection and try again.'
+          : 'Loading is taking longer than usual. You can wait or try again.';
+        retry.hidden = false;
+      }
+      window.addEventListener('error', function (event) {
+        if (!event.target || event.target.tagName !== 'SCRIPT') return;
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', function () { showStartupRecovery(true); }, { once: true });
+        } else showStartupRecovery(true);
+      }, true);
+      document.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () { showStartupRecovery(false); }, 12000);
+      }, { once: true });
+    </script>
   </head>
   <body>
     <div id="root">
@@ -31,6 +51,6 @@
       </div>
     </div>
     <noscript>This search app needs JavaScript enabled to show the map and filters.</noscript>
-    <script type="module" src="/src/main.tsx" onerror="document.querySelector('.startup-status').textContent='The app could not load. Check your connection and try again.';document.querySelector('.startup-retry').hidden=false;"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

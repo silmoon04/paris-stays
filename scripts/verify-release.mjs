@@ -55,6 +55,7 @@ for (const s of snapshot.stays) {
 }
 const html = await readFile(path.join(out, "index.html"), "utf8");
 assert.ok(html.includes("/paris-stays/assets/"));
+assert.ok(html.includes("showStartupRecovery") && /addEventListener\(['"]error['"]/.test(html), "Startup recovery must survive the static build");
 assert.ok(html.includes('rel="preload"') && html.includes('.woff2'), "Font must be served and preloaded from this site");
 for (const m of html.matchAll(/(?:href|src)="(\/[^"\s]+)"/g)) {
   assert.ok(m[1].startsWith("/paris-stays/"));
