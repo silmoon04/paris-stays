@@ -23,6 +23,35 @@ def row():
         'images':[{'imageUrl':'https://a0.muscache.com/a.jpg','caption':'Bathroom'}]}
 
 class EvidenceTests(unittest.TestCase):
+    def test_text_layout_deduplicates_rooms_and_excludes_sofas(self):
+        r=row();r['description']='Bedroom 1: one queen size bed. Bedroom 2: two single beds. Living room: a sofa bed. Bedroom 1: one queen size bed. Bedroom 2: two single beds.'
+        r['subDescription']['items']=['5 guests','2 bedrooms','4 beds','2 bathrooms']
+        beds=p.text_facts(r)['properBeds'];self.assertEqual(beds['value'],3);self.assertEqual(beds['extent'],'exact')
+        self.assertTrue(beds['inferred'])
+        r['description']='Three bedrooms, each with a queen-size bed. A sofa bed in the lounge.'
+        self.assertEqual(p.text_facts(r)['properBeds']['value'],3)
+        r['description']='Three bedrooms with quality bedding. Four beds advertised.'
+        self.assertNotIn('properBeds',p.text_facts(r))
+        r['description']='Bedroom 1: one king-size bed (or two twin beds). Bedroom 2: one double bed.'
+        self.assertEqual(p.text_facts(r)['properBeds']['value'],2)
+        r['description']='Upstairs you will find two additional bedrooms. On the ground floor, a queen-size bed.'
+        fs=p.text_facts(r);self.assertNotIn('floor',fs);self.assertFalse(fs['accessSuitable']['value'])
+
+    def test_access_text_and_toilets_do_not_use_bathroom_count(self):
+        r=row();r['description']='On the 4th floor without an elevator. Two bathrooms.'
+        fs=p.text_facts(r);self.assertFalse(fs['accessSuitable']['value']);self.assertFalse(fs['lift']['value'])
+        self.assertNotIn('toilets',fs)
+        r['description']='On the 3rd floor with elevator. Two separate toilets. No stairs inside the apartment.'
+        fs=p.text_facts(r);self.assertTrue(fs['lift']['value']);self.assertEqual(fs['floor']['value'],3)
+        self.assertFalse(fs['internalStairs']['value']);self.assertEqual(fs['toilets']['value'],2)
+
+    def test_review_excerpts_are_literal_short_and_have_no_guest_identity(self):
+        reviews=[{'id':'1','text':'Lovely apartment. '+('A pleasant stay. '*30)+'There was noise at night from the street.','date':'2026-09-01','rating':4,'reviewer':{'name':'Private person'}}]
+        snippets=p.review_snippets(reviews);self.assertEqual(len(snippets),1)
+        self.assertLessEqual(len(snippets[0]['text'].split()),22)
+        self.assertIn(snippets[0]['text'].strip('…'), reviews[0]['text'])
+        self.assertNotIn('reviewer',json.dumps(snippets));self.assertNotIn('Private person',json.dumps(snippets))
+
     def test_tax_inclusive_total_and_context(self):
         r=row();q=p.quote_for(r);self.assertTrue(q['complete']);self.assertEqual(q['total'],1250.51)
         del r['price']['breakDown']['taxes'];self.assertFalse(p.quote_for(r)['complete'])

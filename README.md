@@ -2,11 +2,15 @@
 
 [Open the search](https://silmoon04.github.io/paris-stays/).
 
-A separate Roomway-style search for one entire Paris home, 31 October–4 November 2026, five adults, four proper beds and a £2,500 whole-stay budget. The approximate areas cover Louvre–Tuileries–Palais Royal–Opéra and Châtelet–Les Halles–Pompidou.
+A separate Roomway-style search for one entire Paris home, 31 October–4 November 2026, five adults, at least three proper beds and a £2,500 whole-stay budget. Four or more proper beds rank higher. The approximate areas cover Louvre–Tuileries–Palais Royal–Opéra and Châtelet–Les Halles–Pompidou.
 
 The app keeps WCs separate from bathing rooms, excludes sofa beds from proper-bed counts, distinguishes evidence from missing information, and includes unknowns in filters by default. Two WCs qualify; three rank higher. Listings with known core mismatches are hidden by default and can be inspected through the filter controls.
 
-The vector map uses OpenFreeMap/MapLibre, with an attributed OpenStreetMap fallback. Prices are four-night GBP quotes. Locations and Louvre walking times are approximate. Hover previews, coordinated map/list selection, photo shortcuts, comparison of three homes and a mobile results sheet make the shortlist easier to assess.
+The vector map uses OpenFreeMap/MapLibre, with an attributed OpenStreetMap fallback. Prices are four-night GBP quotes. Locations and walking times are approximate. Hovering a result card or map pin shows a photo and estimated walks to the Louvre, Eiffel Tower and Notre-Dame. Direction links open a routed journey in Google Maps. Photo shortcuts, comparison of three homes and a mobile results sheet make the shortlist easier to assess.
+
+Cards and evidence use matching facility icons. Known stair flights, upper floors explicitly without a lift, required internal stairs, and more than five entrance steps are excluded by default. Lift advertising does not establish a complete step-free route; missing entrance or internal access evidence remains unknown. Text-derived bed layouts are labelled as inferences, exclude sofa beds and avoid counting repeated room descriptions or alternative bed configurations twice.
+
+Gallery thumbnails use a supported 240px Airbnb CDN size; all images can fall back to the original URL and display a placeholder if both requests fail. Reviews have a labelled AI summary and up to three brief literal guest excerpts without reviewer identities. Full review text stays private. Card descriptions use a short summary; the photo-selection rationale is no longer shown in the interface.
 
 ## Snapshot and its limits
 

@@ -128,6 +128,130 @@ def fact(value, evidence, reviewed_at, confidence='high'):
     return {'value': value, 'source': 'listing', 'confidence': confidence,
             'evidence': clean_text(evidence)[:180], 'reviewedAt': reviewed_at}
 
+NUMBER_WORDS = {'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
+                'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+                'un': 1, 'une': 1, 'deux': 2, 'trois': 3, 'quatre': 4, 'cinq': 5}
+COUNT = r'(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|an|un|une|deux|trois|quatre|cinq)'
+BED_TYPE = r'(?:single|simple|double|queen(?:[ -]?size)?|king(?:[ -]?size)?|full(?:[ -]?size)?|twin)'
+
+def count_number(token):
+    return int(token) if token.isdigit() else NUMBER_WORDS[token.casefold()]
+
+def text_facts(row):
+    """Infer only explicit sleeping/access arrangements; bedrooms alone do not establish beds."""
+    desc = clean_text(row.get('description'))
+    stamp = row.get('timestamp') or ''
+    result = {}
+    def add(key, val, evidence, extent='exact', inferred=False):
+        item = fact(val, evidence, stamp, 'medium' if inferred else 'high')
+        item['extent'] = extent
+        if inferred: item['inferred'] = True
+        result[key] = item
+    floor = re.search(r'\b(?:on|located on|situated on|at)\s+(?:the\s+)?(\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|sixth)\s+floor\b', desc, re.I)
+    if floor:
+        token = floor.group(1).casefold()
+        n = {'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5, 'sixth': 6}.get(token)
+        if n is None: n = int(re.match(r'\d+', token).group())
+        add('floor', n, floor.group())
+    elif not re.search(r'\b(?:duplex|upstairs|mezzanine)\b', desc, re.I) and (ground := re.search(r'\bground[ -]floor\b', desc, re.I)):
+        add('floor', 0, ground.group())
+    no_lift = re.search(r'\b(?:no|without(?:\s+an?)?|not equipped with(?:\s+an?)?)\s+(?:lift|elevator)\b', desc, re.I)
+    if no_lift:
+        add('lift', False, no_lift.group())
+        if result.get('floor', {}).get('value', 0) > 0:
+            add('accessSuitable', False, floor.group() + '; ' + no_lift.group(), inferred=True)
+    elif (lift := re.search(r'\b(?:with|by|private|has(?:\s+an?)?|equipped with(?:\s+an?)?)\s+(?:an?\s+)?(?:lift|elevator)\b', desc, re.I)):
+        add('lift', True, lift.group())
+    no_internal = re.search(r'\bno\s+(?:internal\s+stairs|stairs\s+(?:inside|within)(?:\s+(?:the\s+)?(?:home|apartment|flat))?)\b', desc, re.I)
+    internal = re.search(r'\b(?:internal staircase|internal stairs|(?:bedroom|sleeping\s+(?:space|area))[^.!?]{0,75}(?:via|by)\s+(?:an?\s+)?(?:internal\s+)?staircase|(?:upstairs|mezzanine|upper level|basement)[^.!?]{0,70}(?:bedrooms?|kitchen|sleeping area))\b', desc, re.I)
+    if no_internal: add('internalStairs', False, no_internal.group())
+    elif internal:
+        add('internalStairs', True, internal.group())
+        add('accessSuitable', False, internal.group(), inferred=True)
+    steps = re.search(r'\b(' + COUNT + r')\s+(?:small\s+|entrance\s+)?steps\b[^.!?]{0,55}(?:entrance|enter|building|apartment)', desc, re.I)
+    if steps: add('entranceSteps', count_number(steps.group(1)), steps.group())
+    # A counted toilet is distinct from a bathroom or shower room.
+    wc = re.search(r'\b(' + COUNT + r')\s+(?:separate[d]?\s+)?(?:toilets?|WCs?)\b', desc, re.I)
+    if wc: add('toilets', count_number(wc.group(1)), wc.group(), extent='at-least', inferred=True)
+
+    def beds_in(fragment, deduplicate=False):
+        fragment = re.sub(r'\([^)]*\bor\b[^)]*\)', '', fragment, flags=re.I)
+        matches = list(re.finditer(r'\b(' + COUNT + r')\s+(?:separate\s+|comfortable\s+|large\s+|standard\s+)?(' + BED_TYPE + r')\s+beds?\b', fragment, re.I))
+        valid = [m for m in matches if not re.search(r'(?:sofa|air|inflatable|no|without)\s*$', fragment[max(0, m.start()-14):m.start()], re.I)]
+        if deduplicate:
+            by_type = {}
+            for m in valid:
+                key = (count_number(m.group(1)), m.group(2).casefold().replace('-', ' '))
+                by_type.setdefault(key, m)
+            valid = list(by_type.values())
+        return sum(count_number(m.group(1)) for m in valid), valid
+
+    # Numbered room sections provide distinct identities, preventing repeated descriptions from multiplying beds.
+    room_labels = list(re.finditer(r'\b(?:bedroom\s*(?:N[°o.]?\s*)?(\d+)\b|(\d+)(?:st|nd|rd|th)\s+bedroom\b)', desc, re.I))
+    room_counts, cited = {}, []
+    for index, room in enumerate(room_labels):
+        ident = room.group(1) or room.group(2)
+        segment = desc[room.end():room_labels[index+1].start() if index+1 < len(room_labels) else room.end()+180]
+        segment = re.split(r'\b(?:living room|living area|bathroom|bathrooms|guest access)\b', segment, flags=re.I)[0]
+        n, bed_matches = beds_in(segment)
+        if n and ident not in room_counts:
+            room_counts[ident] = n
+            cited.extend(m.group() for m in bed_matches)
+    bedrooms = next((int(m.group(1)) for text in (row.get('subDescription') or {}).get('items', [])
+                     if (m := re.search(r'(\d+)\s+bedrooms?', str(text), re.I))), None)
+    if room_counts:
+        total = sum(room_counts.values())
+        add('properBeds', total, '; '.join(cited), 'exact' if bedrooms == len(room_counts) else 'at-least', True)
+    else:
+        # Count a single complete group once, even when the introduction repeats the detailed layout.
+        groups = re.findall(r'[^.!?\n]{0,210}\b(?:single|simple|double|queen|king|full|twin)[ -]?(?:size)?\s+beds?\b[^.!?\n]{0,80}', desc, re.I)
+        best = max((beds_in(group, True) for group in groups), key=lambda pair: pair[0], default=(0, []))
+        if best[0]:
+            add('properBeds', best[0], '; '.join(m.group() for m in best[1]), 'at-least', True)
+        each = re.search(r'\b(' + COUNT + r')\s+(?:\w+\s+)?bedrooms?,?\s+each\s+(?:equipped\s+)?with\s+(?:a|one)\s+' + BED_TYPE + r'\s+bed\b', desc, re.I)
+        if each and count_number(each.group(1)) >= result.get('properBeds', {}).get('value', 0):
+            add('properBeds', count_number(each.group(1)), each.group(), 'at-least', True)
+        collective = re.search(r'\b(' + COUNT + r')\s+bedrooms?\s+with\s+(?:comfortable\s+)?' + BED_TYPE + r'\s+beds?\b', desc, re.I)
+        if collective and count_number(collective.group(1)) >= result.get('properBeds', {}).get('value', 0):
+            add('properBeds', count_number(collective.group(1)), collective.group(), 'at-least', True)
+    # Airbnb's total can include convertible sleeping furniture. Label subtraction as an inference.
+    advertised = next((int(m.group(1)) for text in (row.get('subDescription') or {}).get('items', [])
+                       if (m := re.search(r'(\d+)\s+beds?\b', str(text), re.I))), None)
+    sofa = re.search(r'\b(' + COUNT + r')\s+(?:double\s+|convertible\s+|comfortable\s+)?sofa[ -]?beds?\b|\ba\s+(?:large\s+)?sofa\s+is\s+available\s+to\s+accommodate\s+1\s+additional', desc, re.I)
+    if not result.get('properBeds') and advertised is not None and sofa and not re.search(r'\b(?:air mattress|inflatable|floor mattress|folding bed|bunk)\b', desc, re.I):
+        sofa_count = count_number(sofa.group(1)) if sofa.group(1) else 1
+        if advertised-sofa_count == bedrooms:
+            add('properBeds', advertised-sofa_count, f'{advertised} beds advertised; {sofa.group()}', inferred=True)
+    return result
+
+def review_snippets(reviews):
+    """Publish brief literal excerpts without names, profiles or full review text."""
+    selected, seen = [], set()
+    candidates = []
+    for review in reviews:
+        text = clean_text(review.get('text'))
+        if not text or text in seen: continue
+        seen.add(text)
+        topics = [('Access', r'\b(?:stairs?|steps?|elevator|lift|escaliers?|ascenseur)\b'),
+                  ('Noise', r'\b(?:noise|noisy|loud|bruit|bruyant)\b'),
+                  ('Facilities', r'\b(?:air[ -]conditioning|AC|A/C|climatisation|bathroom|toilet|kitchen|table|beds?)\b')]
+        topic, match = next(((label, re.search(pattern, text, re.I)) for label, pattern in topics if re.search(pattern, text, re.I)), ('Guest experience', None))
+        words = list(re.finditer(r'\S+', text))
+        center = next((i for i, w in enumerate(words) if match and w.end() > match.start()), 0)
+        start = max(0, center - 7)
+        end = min(len(words), start + 22)
+        snippet = text[words[start].start():words[end-1].end()]
+        if start: snippet = '…' + snippet
+        if end < len(words): snippet += '…'
+        candidates.append({'id': str(review.get('id') or ''), 'text': snippet,
+                           'date': str(review.get('date') or ''), 'rating': review.get('rating'), 'topic': topic})
+    # Surface useful access/facility/noise excerpts before general praise.
+    candidates.sort(key=lambda item: item['topic'] == 'Guest experience')
+    for item in candidates:
+        if len(selected) == 3: break
+        selected.append(item)
+    return selected
+
 def listing_facts(row):
     desc = clean_text(row.get('description'))
     sub = row.get('subDescription') if isinstance(row.get('subDescription'), dict) else {}
@@ -171,6 +295,9 @@ def listing_facts(row):
     if seats:
         n = int(next(g for g in seats.groups() if g))
         facts['diningSeats'] = fact(n, seats.group(0), reviewed, 'medium')
+    derived = text_facts(row)
+    for key, item in derived.items():
+        if key not in facts: facts[key] = item
     return facts
 
 def structured_evidence(row):
@@ -601,6 +728,16 @@ def normalize(rows, runs, reviews_by_listing=None, validation_errors=None):
         enrichment_path = PRIVATE / 'enrichment' / f'{ident}.json'
         enrichment = read(enrichment_path)
         enrichment = validate_enrichment(enrichment, input_hash, evidence['images'], evidence, reviews, ident, validation_errors)
+        # Explicit text can improve a photographic lower bound, while retaining any conflict.
+        if enrichment:
+            for key, item in list(enrichment['facts'].items()):
+                derived = facts.get(key)
+                if derived and key in ('properBeds', 'floor', 'accessSuitable'):
+                    if item.get('extent') == 'at-least' and isinstance(item.get('value'), (int, float)) and derived['value'] >= item['value']:
+                        enrichment['facts'][key] = derived
+                    elif key == 'accessSuitable' and derived['value'] is False:
+                        enrichment['facts'][key] = derived
+        snippets = review_snippets(reviews)
         stay = {
             'id': ident, 'title': clean_text(row.get('title')), 'url': row.get('url') or '',
             'lat': lat if isinstance(lat, (int, float)) else None, 'lon': lon if isinstance(lon, (int, float)) else None,
@@ -619,7 +756,9 @@ def normalize(rows, runs, reviews_by_listing=None, validation_errors=None):
         stays.append(stay)
         private_evidence = {'id': ident, 'inputHash': input_hash, 'title': stay['title'], **evidence, 'reviews': reviews}
         write(PRIVATE / 'evidence' / f'{ident}.json', private_evidence)
-        write(PUBLIC / 'details' / f'{ident}.json', detail_for(row, facts, enrichment))
+        detail = detail_for(row, facts, enrichment)
+        detail['reviewSnippets'] = snippets
+        write(PUBLIC / 'details' / f'{ident}.json', detail)
     timestamp = max((r.get('finishedAt') or r.get('startedAt') or '' for r in runs
                      if r.get('phase') in ('discovery', 'details') and r.get('count', 0)), default='')
     trip = {'checkIn': CHECK_IN, 'checkOut': CHECK_OUT, 'nights': 4, 'adults': ADULTS, 'currency': CURRENCY, 'budget': 2500}

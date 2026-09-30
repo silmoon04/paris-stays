@@ -9,6 +9,7 @@ export type Fact = {
   reviewIds?: string[];
   conflicts?: string[];
   reviewedAt: string;
+  inferred?: boolean;
 };
 export type Trip = {
   checkIn: string;
@@ -27,6 +28,21 @@ export const TRIP: Trip = {
   budget: 2500,
 };
 export const LOUVRE: [number, number] = [48.8606, 2.3353];
+export const LANDMARKS = [
+  { id: "louvre", name: "Louvre", coordinates: LOUVRE },
+  {
+    id: "eiffel",
+    name: "Eiffel Tower",
+    coordinates: [48.85837, 2.29448] as [number, number],
+  },
+  {
+    id: "notreDame",
+    name: "Notre-Dame",
+    coordinates: [48.853, 2.3499] as [number, number],
+  },
+] as const;
+export const MIN_PROPER_BEDS = 3;
+export const FEW_STEPS_MAX = 5;
 export const ZONES = {
   west: {
     label: "Louvre · Palais Royal · Opéra",
@@ -113,6 +129,13 @@ export type Snapshot = {
   stays: Stay[];
 };
 export type Detail = {
+  reviewSnippets?: {
+    id: string;
+    text: string;
+    date: string;
+    rating: number | null;
+    topic: string;
+  }[];
   description: string;
   amenities: { title: string; available: boolean; subtitle: string }[];
   cancellation: string[];
@@ -339,14 +362,17 @@ export function quoteMatchesTrip(q: Quote) {
     q.currency === "GBP"
   );
 }
-export function walkingMinutes(s: Stay) {
+export function walkingMinutes(
+  s: Stay,
+  destination: readonly [number, number] = LOUVRE,
+) {
   if (s.lat === null || s.lon === null) return null;
   const rad = Math.PI / 180,
     a =
-      Math.sin(((s.lat - LOUVRE[0]) * rad) / 2) ** 2 +
+      Math.sin(((s.lat - destination[0]) * rad) / 2) ** 2 +
       Math.cos(s.lat * rad) *
-        Math.cos(LOUVRE[0] * rad) *
-        Math.sin(((s.lon - LOUVRE[1]) * rad) / 2) ** 2;
+        Math.cos(destination[0] * rad) *
+        Math.sin(((s.lon - destination[1]) * rad) / 2) ** 2;
   return Math.max(
     1,
     Math.round(
@@ -367,14 +393,14 @@ export function contradictions(s: Stay): string[] {
   const reasons: string[] = [];
   if (!s.zones.length) reasons.push("Outside both search areas");
   if (s.entireHome === false) reasons.push("Not an entire home");
-  if (s.advertisedBeds !== null && s.advertisedBeds < 4)
-    reasons.push("Fewer than 4 beds advertised");
+  if (s.advertisedBeds !== null && s.advertisedBeds < MIN_PROPER_BEDS)
+    reasons.push("Fewer than 3 beds advertised");
   if (s.capacity !== null && s.capacity < 5) reasons.push("Capacity below 5");
   if (s.quote.available === false) reasons.push("Unavailable for the trip");
   if (s.quote.total !== null && s.quote.total > 2500)
     reasons.push("Above £2,500");
   for (const [key, min, label] of [
-    ["properBeds", 4, "Fewer than 4 proper beds"],
+    ["properBeds", MIN_PROPER_BEDS, "Fewer than 3 proper beds"],
     ["toilets", 2, "Fewer than 2 toilets"],
     ["showers", 1, "No shower"],
     ["diningSeats", 5, "Table seats fewer than 5"],
@@ -383,8 +409,14 @@ export function contradictions(s: Stay): string[] {
     if (typeof v === "number" && v < min && fact(s, key)?.extent !== "at-least")
       reasons.push(label);
   }
-  if (value(s, "accessSuitable") === false)
+  if (
+    value(s, "accessSuitable") === false ||
+    (value(s, "lift") === false && Number(value(s, "floor")) > 0) ||
+    value(s, "internalStairs") === true
+  )
     reasons.push("Requires flights of stairs");
+  if (Number(value(s, "entranceSteps")) > FEW_STEPS_MAX)
+    reasons.push("More than 5 entrance steps");
   if (value(s, "kitchen") === false) reasons.push("No kitchen");
   return reasons;
 }
@@ -414,15 +446,18 @@ export function checks(s: Stay): string[] {
         typeof value(s, k) === "number" &&
         Number(value(s, k)) <
           (
-            { properBeds: 4, toilets: 2, showers: 1, diningSeats: 5 } as Record<
-              string,
-              number
-            >
+            {
+              properBeds: MIN_PROPER_BEDS,
+              toilets: 2,
+              showers: 1,
+              diningSeats: 5,
+            } as Record<string, number>
           )[k])
     )
       out.push(l);
   if (s.enrichment?.reviewSummary?.conflicts.length)
     out.push("Review conflicts");
+  if (fact(s, "properBeds")?.inferred) out.push("Inferred bed layout");
   return out;
 }
 export function confirmed(s: Stay) {
@@ -446,6 +481,8 @@ export function ranking(s: Stay) {
     Number(value(s, "properBeds")) >= 4
   )
     add(14, "4+ proper beds");
+  else if (Number(value(s, "properBeds")) >= MIN_PROPER_BEDS)
+    add(8, "3 proper beds");
   if (s.rating !== null && s.rating >= 4.7) {
     add(10, "Strong rating");
     if ((s.reviewCount ?? 0) >= 20) add(5, "20+ reviews");
@@ -463,4 +500,93 @@ export function ranking(s: Stay) {
   score -= (s.enrichment?.reviewSummary?.conflicts.length ?? 0) * 8;
   score -= contradictions(s).length * 50;
   return { score, reasons };
+}
+
+export function accessSummary(s: Stay): {
+  label: string;
+  detail: string;
+  icon: string;
+  caution: boolean;
+} {
+  const lift = value(s, "lift"),
+    floor = value(s, "floor"),
+    steps = value(s, "entranceSteps");
+  if (value(s, "internalStairs") === true)
+    return {
+      label: "Internal stairs",
+      detail: fact(s, "internalStairs")?.evidence ?? "Stairs inside the home",
+      icon: "internalStairs",
+      caution: true,
+    };
+  if (
+    value(s, "accessSuitable") === false ||
+    (lift === false && typeof floor === "number" && floor > 0)
+  )
+    return {
+      label: "Stair flights required",
+      detail: fact(s, "accessSuitable")?.evidence ?? `${floor} floor, no lift`,
+      icon: "internalStairs",
+      caution: true,
+    };
+  if (typeof steps === "number" && steps > FEW_STEPS_MAX)
+    return {
+      label: `${steps} entrance steps`,
+      detail: "More than the five-step entrance limit",
+      icon: "entranceSteps",
+      caution: true,
+    };
+  const few =
+    typeof steps === "number" && steps > 0 ? ` · ${steps} entrance steps` : "";
+  if (lift === true)
+    return {
+      label:
+        (floor === 0 ? "Ground floor · lift advertised" : "Lift advertised") +
+        (typeof floor === "number" && floor > 0 ? ` · floor ${floor}` : "") +
+        few,
+      detail:
+        value(s, "accessSuitable") === true
+          ? "No required stair flights supported by evidence"
+          : "Confirm entrance steps and the route from the lift",
+      icon: "lift",
+      caution: false,
+    };
+  if (floor === 0)
+    return {
+      label: "Ground floor" + few,
+      detail: "Confirm entrance steps and internal access",
+      icon: "floor",
+      caution: false,
+    };
+  if (value(s, "accessSuitable") === true)
+    return {
+      label: few ? `${steps} entrance steps only` : "No stair flights",
+      detail:
+        fact(s, "accessSuitable")?.evidence ??
+        "Access supported by listing evidence",
+      icon: "accessSuitable",
+      caution: false,
+    };
+  return {
+    label: "Access to check",
+    detail:
+      "Lift or access with no more than five entrance steps needs confirmation",
+    icon: "accessSuitable",
+    caution: true,
+  };
+}
+export function compactSummary(s: Stay) {
+  const text = (s.enrichment?.summary || s.summary).replace(/\s+/g, " ").trim();
+  const sentences = text.match(/[^.!?]+[.!?]?(?:\s|$)/g) ?? [text];
+  let result = sentences[0]?.trim() ?? "";
+  if (result.length > 155) {
+    const clauses = result.split(/[,;]\s+/);
+    result = clauses[0];
+    for (const clause of clauses.slice(1)) {
+      if ((result + ", " + clause).length > 155) break;
+      result += ", " + clause;
+    }
+  }
+  if (result.length > 155)
+    result = result.slice(0, 150).replace(/\s+\S*$/, "") + "…";
+  return result;
 }

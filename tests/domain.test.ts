@@ -6,6 +6,9 @@ import {
   contradictions,
   ranking,
   TRIP,
+  walkingMinutes,
+  LANDMARKS,
+  accessSummary,
   type Stay,
   type Fact,
 } from "../src/domain";
@@ -61,18 +64,49 @@ function home(extra: Partial<Stay> = {}): Stay {
 }
 test("four proper beds can be in two bedrooms", () =>
   assert.equal(confirmed(home()), true));
-test("three proper beds and a sofa do not meet four beds", () => {
+test("three proper beds qualify under the updated minimum", () => {
   const s = home();
   s.facts.properBeds = f(3);
-  assert.ok(contradictions(s).includes("Fewer than 4 proper beds"));
+  assert.equal(matches(s, DEFAULT_FILTERS), true);
+  s.facts.properBeds = f(2);
+  assert.ok(contradictions(s).includes("Fewer than 3 proper beds"));
   assert.equal(matches(s, DEFAULT_FILTERS), false);
 });
-test("advertised total below four establishes an upper limit", () =>
+test("advertised total below three establishes an upper limit", () =>
   assert.ok(
-    contradictions(home({ advertisedBeds: 3 })).includes(
-      "Fewer than 4 beds advertised",
+    contradictions(home({ advertisedBeds: 2 })).includes(
+      "Fewer than 3 beds advertised",
     ),
   ));
+test("a lift does not excuse internal stairs or many entrance steps", () => {
+  const s = home();
+  s.facts.lift = f(true);
+  s.facts.internalStairs = f(true);
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+  s.facts.internalStairs = f(false);
+  s.facts.entranceSteps = f(3);
+  assert.equal(matches(s, DEFAULT_FILTERS), true);
+  assert.match(accessSummary(s).label, /Lift.*3 entrance steps/);
+  s.facts.entranceSteps = f(9);
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+});
+test("an upper floor explicitly without a lift is excluded", () => {
+  const s = home();
+  delete s.facts.accessSuitable;
+  s.facts.floor = f(2);
+  s.facts.lift = f(false);
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+});
+test("destination estimates use each landmark rather than reusing Louvre time", () => {
+  const s = home({ lat: 48.8606, lon: 2.3353 });
+  const walks = LANDMARKS.map((landmark) =>
+    walkingMinutes(s, landmark.coordinates),
+  );
+  assert.equal(walks[0], 1);
+  assert.ok(walks[1]! > walks[2]!);
+  assert.ok(walks[2]! > 1);
+  assert.equal(walkingMinutes(home({ lat: null })), null);
+});
 test("toilets are independent of bathroom count", () => {
   const s = home({ bathrooms: 1 });
   assert.equal(confirmed(s), true);

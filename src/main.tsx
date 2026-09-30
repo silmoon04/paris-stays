@@ -15,6 +15,15 @@ import {
   ArrowRight,
   ArrowUpRight,
   BedDouble,
+  DoorOpen,
+  ArrowUpDown,
+  Utensils,
+  Sparkles,
+  Images,
+  Receipt,
+  Database,
+  CircleHelp,
+  ShieldCheck,
   CalendarDays,
   Check,
   ChevronDown,
@@ -52,6 +61,9 @@ import {
   TRIP,
   value,
   walkingMinutes,
+  accessSummary,
+  compactSummary,
+  MIN_PROPER_BEDS,
   ZONES,
   type Stay,
   type Snapshot,
@@ -78,6 +90,9 @@ import {
   type Activity,
 } from "./persistence";
 import "./styles.css";
+import { ListingImage } from "./ListingImage";
+import { FactIcon } from "./FactIcon";
+import { WalkTimes } from "./WalkTimes";
 const StayMap = lazy(() => import("./StayMap"));
 const date = (s: string) =>
   !Number.isFinite(Date.parse(s))
@@ -148,8 +163,6 @@ function Photo({
   className: string;
   onClick: () => void;
 }) {
-  const [failed, setFailed] = useState(false),
-    [loaded, setLoaded] = useState(false);
   const index = coverIndex(stay),
     url = stay.photos[index]?.url;
   return (
@@ -158,23 +171,13 @@ function Photo({
       onClick={onClick}
       aria-label={"View " + stay.title}
     >
-      {url && !failed ? (
-        <img
-          src={url + (url.includes("?") ? "&" : "?") + "im_w=720"}
-          alt={stay.photos[index]?.caption || stay.title}
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
-          className={loaded ? "loaded" : ""}
-        />
-      ) : (
-        <span className="photo-fallback">
-          <House size={25} />
-          Photo unavailable
-        </span>
-      )}
+      <ListingImage
+        url={url}
+        alt={stay.photos[index]?.caption || stay.title}
+        width={720}
+      />
       <span className="photo-count">
+        <Images size={11} aria-hidden="true" />
         {stay.enrichment?.photoReview?.interiorPhotos === false
           ? "Exterior photos only"
           : `${stay.photos.length} photos`}
@@ -192,8 +195,12 @@ function Price({ stay }: { stay: Stay }) {
   return (
     <div className="price">
       <strong>{money(stay.quote.total)}</strong>
-      <span>for 4 nights</span>
+      <span>
+        <CalendarDays size={11} aria-hidden="true" />
+        for 4 nights
+      </span>
       <small>
+        <Receipt size={10} aria-hidden="true" />
         {stay.quote.complete
           ? "Fees & taxes included"
           : "Full price needs checking"}
@@ -224,13 +231,18 @@ function StayCard({
     bad = contradictions(stay),
     wc = value(stay, "toilets"),
     beds = value(stay, "properBeds"),
-    walk = walkingMinutes(stay);
+    walk = walkingMinutes(stay),
+    access = accessSummary(stay);
   return (
     <article
       className="stay-card"
       data-testid={"stay-" + stay.id}
       onMouseEnter={() => onHover(stay.id)}
       onMouseLeave={() => onHover(null)}
+      onFocusCapture={() => onHover(stay.id)}
+      onBlurCapture={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) onHover(null);
+      }}
     >
       <div className="card-image">
         <Photo stay={stay} className="card-photo" onClick={onOpen} />
@@ -262,19 +274,54 @@ function StayCard({
         <div className="card-facts">
           <span>
             <BedDouble size={15} />
-            {typeof beds === "number"
+            {typeof beds === "number" &&
+            !(
+              fact(stay, "properBeds")?.extent === "at-least" &&
+              beds < MIN_PROPER_BEDS
+            )
               ? `${factDisplay(stay, "properBeds")} proper beds`
-              : `${stay.advertisedBeds ?? "?"} beds advertised`}
+              : "Proper beds to check"}
           </span>
+          {fact(stay, "properBeds")?.inferred && (
+            <span
+              className="inferred-tag"
+              title="Inferred from the listing text; confirm the bed layout"
+            >
+              <Sparkles size={11} aria-hidden="true" />
+              Inferred
+            </span>
+          )}
           <span>
             <Toilet size={15} />
-            {typeof wc === "number"
+            {typeof wc === "number" &&
+            !(fact(stay, "toilets")?.extent === "at-least" && wc < 2)
               ? `${factDisplay(stay, "toilets")} WCs`
-              : "WCs to check"}
+              : "2+ WCs to check"}
           </span>
-          <span>{stay.bedrooms ?? "?"} bedrooms</span>
+          <span>
+            <DoorOpen size={15} aria-hidden="true" />
+            {value(stay, "bedrooms") ?? stay.bedrooms ?? "?"} bedrooms
+          </span>
         </div>
-        <p className="card-desc">{stay.enrichment?.summary || stay.summary}</p>
+        <p
+          className={"card-access " + (access.caution ? "access-caution" : "")}
+          title={access.detail}
+        >
+          <FactIcon name={access.icon} size={14} />
+          {access.label}
+          {typeof value(stay, "areaM2") === "number" && (
+            <span>
+              <FactIcon name="areaM2" size={13} />
+              {factDisplay(stay, "areaM2")} m²
+            </span>
+          )}
+        </p>
+        <p className="card-desc">
+          {stay.enrichment && (
+            <Sparkles size={13} aria-label="AI listing summary" />
+          )}
+          {compactSummary(stay)}
+        </p>
         <div
           className={
             "fit-label " +
@@ -340,7 +387,10 @@ function Evidence({ stay, detail }: { stay: Stay; detail?: Detail }) {
         const item = facts[f.key];
         return (
           <div key={f.key} className={!item ? "unknown-fact" : ""}>
-            <span>{f.label}</span>
+            <span className="fact-heading">
+              <FactIcon name={f.key} />
+              {f.label}
+            </span>
             <strong>
               {item
                 ? typeof item.value === "boolean"
@@ -355,11 +405,13 @@ function Evidence({ stay, detail }: { stay: Stay; detail?: Detail }) {
             {item && (
               <details>
                 <summary>
-                  {item.source === "photos"
-                    ? "Seen in photos"
-                    : item.source === "reviews"
-                      ? "Review evidence"
-                      : "Listing says"}{" "}
+                  {item.inferred
+                    ? "Inferred from text"
+                    : item.source === "photos"
+                      ? "Seen in photos"
+                      : item.source === "reviews"
+                        ? "Review evidence"
+                        : "Listing says"}{" "}
                   · {item.confidence}
                 </summary>
                 <p>{item.evidence}</p>
@@ -375,13 +427,19 @@ function Evidence({ stay, detail }: { stay: Stay; detail?: Detail }) {
         );
       })}
       <div>
-        <span>Bathing rooms advertised</span>
+        <span className="fact-heading">
+          <FactIcon name="bathrooms" />
+          Bathing rooms advertised
+        </span>
         <strong>{stay.bathrooms ?? "Not stated"}</strong>
         <small>This is separate from toilet count.</small>
       </div>
       {detail?.cancellation.length ? (
         <div>
-          <span>Cancellation terms</span>
+          <span className="fact-heading">
+            <FactIcon name="cancellation" />
+            Cancellation terms
+          </span>
           <p>{detail.cancellation.join(" · ")}</p>
         </div>
       ) : null}
@@ -409,8 +467,7 @@ function StayDetails({
 }) {
   const [index, setIndex] = useState(coverIndex(stay)),
     [detail, setDetail] = useState<Detail>(),
-    [detailError, setDetailError] = useState(false),
-    [failed, setFailed] = useState(false);
+    [detailError, setDetailError] = useState(false);
   useEffect(() => {
     const control = new AbortController();
     fetch(import.meta.env.BASE_URL + "data/details/" + stay.id + ".json", {
@@ -430,32 +487,23 @@ function StayDetails({
     review = stay.enrichment?.photoReview;
   const change = (i: number) => {
     setIndex(i);
-    setFailed(false);
     onActivity("photo", stay.id, { index: i });
   };
   const bad = contradictions(stay),
-    todo = checks(stay);
+    todo = checks(stay),
+    access = accessSummary(stay),
+    reviewSummary = stay.enrichment?.reviewSummary;
   return (
     <Modal title={stay.title} onClose={onClose} wide>
       <div className="detail-body">
         <div className="detail-gallery">
           <div className="large-photo">
-            {photo && !failed ? (
-              <img
-                src={
-                  photo.url +
-                  (photo.url.includes("?") ? "&" : "?") +
-                  "im_w=1440"
-                }
-                alt={photo.caption || stay.title}
-                onError={() => setFailed(true)}
-              />
-            ) : (
-              <div className="photo-fallback">
-                <House />
-                Photo unavailable
-              </div>
-            )}
+            <ListingImage
+              url={photo?.url}
+              alt={photo?.caption || stay.title}
+              width={1440}
+              eager
+            />
             <button
               className="gallery-prev"
               aria-label="Previous photo"
@@ -480,7 +528,10 @@ function StayDetails({
           </div>
           <p className="caption">{photo?.caption || "Listing photograph"}</p>
           <div className="photo-categories">
-            <button onClick={() => change(coverIndex(stay))}>Best view</button>
+            <button onClick={() => change(coverIndex(stay))}>
+              <Images size={14} aria-hidden="true" />
+              Best view
+            </button>
             {(
               [
                 ["Kitchen", review?.kitchenPhotoIndices, "kitchen|dining"],
@@ -504,6 +555,18 @@ function StayDetails({
                   disabled={i < 0 || i === undefined}
                   onClick={() => change(i!)}
                 >
+                  <FactIcon
+                    name={
+                      label === "Kitchen"
+                        ? "kitchen"
+                        : label === "Bathrooms"
+                          ? "bathrooms"
+                          : label === "Beds"
+                            ? "properBeds"
+                            : "accessSuitable"
+                    }
+                    size={14}
+                  />
                   {label}
                 </button>
               );
@@ -517,20 +580,10 @@ function StayDetails({
                 onClick={() => change(i)}
                 aria-label={"Photo " + (i + 1) + ": " + p.caption}
               >
-                <img
-                  src={p.url + (p.url.includes("?") ? "&" : "?") + "im_w=160"}
-                  alt=""
-                  loading="lazy"
-                />
+                <ListingImage url={p.url} alt="" width={240} thumbnail />
               </button>
             ))}
           </div>
-          {review && (
-            <p className="photo-basis">
-              Photo selection: {review.bestPhotoReason} ·{" "}
-              {review.viewedPhotoIndices.length} images inspected by GPT-6 Luna.
-            </p>
-          )}
           {stay.enrichment?.deepReview && (
             <p className="deep-note">
               <Check size={16} />
@@ -633,33 +686,14 @@ function StayDetails({
               </span>
             ))}
           </div>
-          <p className="walk">
-            <Clock size={15} />≈{walkingMinutes(stay) ?? "?"} min walk to the
-            Louvre
-          </p>
-          <small>
-            Estimated from the approximate listing location, with a
-            street-distance allowance. This is not a routed or step-free
-            journey.
-          </small>
-          <a
-            className="directions"
-            target="_blank"
-            rel="noopener noreferrer"
-            href={
-              "https://www.google.com/maps/dir/?api=1&origin=" +
-              stay.lat +
-              "," +
-              stay.lon +
-              "&destination=48.8606,2.3353&travelmode=walking"
-            }
-          >
-            Open walking directions <ArrowUpRight size={13} />
-          </a>
+          <WalkTimes stay={stay} />
         </aside>
       </div>
       <section className="detail-section">
-        <h3>Sleeping and access</h3>
+        <h3>
+          <BedDouble size={18} aria-hidden="true" />
+          Sleeping and access
+        </h3>
         {(value(stay, "showerLayout") === "over-bath" ||
           value(stay, "showerLayout") === "both") && (
           <p className="warning">
@@ -686,18 +720,9 @@ function StayDetails({
           </div>
           <ArrowRight size={18} />
           <div>
-            <House size={20} />
-            <strong>
-              {value(stay, "lift") === true
-                ? "Lift advertised"
-                : Number(value(stay, "floor")) === 0
-                  ? "Ground floor stated"
-                  : "Access to check"}
-            </strong>
-            <span>
-              {fact(stay, "accessSuitable")?.evidence ||
-                "Entrance and internal stairs need confirmation"}
-            </span>
+            <FactIcon name={access.icon} size={20} />
+            <strong>{access.label}</strong>
+            <span>{access.detail}</span>
           </div>
         </div>
         <p>
@@ -707,37 +732,81 @@ function StayDetails({
         </p>
       </section>
       <section className="detail-section">
-        <h3>Listing, photo and review evidence</h3>
+        <h3>
+          <ShieldCheck size={18} aria-hidden="true" />
+          Listing, photo and review evidence
+        </h3>
         <Evidence stay={stay} detail={detail} />
       </section>
       <section className="detail-section">
-        <h3>What guests say</h3>
-        {stay.enrichment?.reviewSummary ? (
-          <>
+        <h3>
+          <MessageSquare size={18} aria-hidden="true" />
+          What guests say
+        </h3>
+        {reviewSummary ? (
+          <div className="ai-review-summary">
+            <h4>
+              <Sparkles size={17} aria-hidden="true" />
+              AI review summary
+            </h4>
             <p>
-              AI summary of {stay.enrichment.reviewSummary.sampleCount} sampled
-              reviews; this is not the full review history.
+              {reviewSummary.themes.join(" ") ||
+                "No recurring positive theme established in this sample."}
             </p>
-            <ul>
-              {stay.enrichment.reviewSummary.themes.map((x) => (
-                <li key={x}>{x}</li>
-              ))}
-            </ul>
-            <ul className="warnings">
-              {[
-                ...stay.enrichment.reviewSummary.concerns,
-                ...stay.enrichment.reviewSummary.conflicts,
-              ].map((x) => (
-                <li key={x}>{x}</li>
-              ))}
-            </ul>
-          </>
+            {reviewSummary.concerns.length > 0 && (
+              <p className="review-concerns">
+                <Info size={15} aria-hidden="true" />
+                <span>{reviewSummary.concerns.join(" ")}</span>
+              </p>
+            )}
+            {reviewSummary.conflicts.length > 0 && (
+              <p className="warning">
+                <CircleHelp size={15} aria-hidden="true" />
+                <span>{reviewSummary.conflicts.join(" ")}</span>
+              </p>
+            )}
+            <small>
+              Based on {reviewSummary.sampleCount} sampled reviews · AI
+              interpretation of guest reports, not the full review history.
+            </small>
+          </div>
         ) : (
           <p>
             Review text has not been analysed for this home. The rating and
             count above are listing data.
           </p>
         )}
+        {detail?.reviewSnippets?.length ? (
+          <div className="review-snippets">
+            {detail.reviewSnippets.map((snippet) => (
+              <figure key={snippet.id + snippet.text}>
+                <figcaption>
+                  <MessageSquare size={14} aria-hidden="true" />
+                  <strong>{snippet.topic}</strong>
+                  <span>
+                    {snippet.date && Number.isFinite(Date.parse(snippet.date))
+                      ? new Intl.DateTimeFormat("en-GB", {
+                          month: "short",
+                          year: "numeric",
+                          timeZone: "Europe/London",
+                        }).format(new Date(snippet.date))
+                      : "Date not provided"}
+                  </span>
+                  {snippet.rating !== null && (
+                    <span>
+                      <Star size={12} aria-hidden="true" />
+                      {snippet.rating}/5
+                    </span>
+                  )}
+                </figcaption>
+                <blockquote>“{snippet.text}”</blockquote>
+                <a href={stay.url} target="_blank" rel="noopener noreferrer">
+                  Guest excerpt on Airbnb <ArrowUpRight size={12} />
+                </a>
+              </figure>
+            ))}
+          </div>
+        ) : null}
       </section>
       <section className="detail-section">
         <h3>Listing description</h3>
@@ -863,9 +932,15 @@ function FiltersPanel({
           />
         </label>
         <section className="filter-group">
-          <h3>Price & reviews</h3>
+          <h3>
+            <Receipt size={17} aria-hidden="true" />
+            Price & reviews
+          </h3>
           <label className="filter-label">
-            Whole-stay maximum <b>{money(filters.priceMax)}</b>
+            <span className="fact-heading">
+              <Receipt size={16} aria-hidden="true" />
+              Whole-stay maximum <b>{money(filters.priceMax)}</b>
+            </span>
             <input
               aria-label="Whole-stay maximum"
               type="range"
@@ -879,7 +954,10 @@ function FiltersPanel({
             />
           </label>
           <label className="filter-label">
-            Minimum rating
+            <span className="fact-heading">
+              <Star size={16} aria-hidden="true" />
+              Minimum rating
+            </span>
             <select
               value={filters.ratingMin ?? ""}
               onChange={(e) =>
@@ -901,7 +979,10 @@ function FiltersPanel({
             </select>
           </label>
           <label className="filter-label">
-            Minimum review count
+            <span className="fact-heading">
+              <MessageSquare size={16} aria-hidden="true" />
+              Minimum review count
+            </span>
             <select
               value={filters.minReviews ?? ""}
               onChange={(e) =>
@@ -935,7 +1016,10 @@ function FiltersPanel({
                     id={"label-" + field.key}
                     htmlFor={"field-" + field.key}
                   >
-                    {field.label}
+                    <span className="fact-heading">
+                      <FactIcon name={field.key} size={16} />
+                      {field.label}
+                    </span>
                     <small>{unknown} unknown</small>
                   </label>
                   {field.kind === "boolean" ? (
@@ -1336,6 +1420,7 @@ function App() {
         <nav>
           <button
             className="header-button"
+            aria-label="My notes"
             onClick={() => {
               setPersonalOpen(true);
               activity("navigation", undefined, { tab: "activity" });
@@ -1346,6 +1431,7 @@ function App() {
           </button>
           <button
             className="header-button"
+            aria-label={"Shortlist " + saved.size}
             onClick={() => {
               setTab("saved");
               setSheet("full");
@@ -1471,6 +1557,7 @@ function App() {
                 }}
                 className={filters.rules.lift ? "pressed" : ""}
               >
+                <ArrowUpDown size={15} aria-hidden="true" />
                 Lift <small>{quickCount("lift", { eq: true })}</small>
               </button>
               <button
@@ -1482,6 +1569,7 @@ function App() {
                 }}
                 className={filters.rules.diningSeats ? "pressed" : ""}
               >
+                <Utensils size={15} aria-hidden="true" />
                 Table for five{" "}
                 <small>{quickCount("diningSeats", { min: 5 })}</small>
               </button>
@@ -1490,9 +1578,18 @@ function App() {
               </button>
             </div>
             <div className="criteria-line">
-              <span>4 proper beds</span>
-              <span>2+ WCs</span>
-              <span>£2,500 total max</span>
+              <span>
+                <BedDouble size={13} aria-hidden="true" />
+                {MIN_PROPER_BEDS}+ proper beds
+              </span>
+              <span>
+                <Toilet size={13} aria-hidden="true" />
+                2+ WCs
+              </span>
+              <span>
+                <Receipt size={13} aria-hidden="true" />
+                £2,500 total max
+              </span>
               <button
                 onClick={() =>
                   apply({ ...filters, includeUnknown: !filters.includeUnknown })
@@ -1551,15 +1648,25 @@ function App() {
                 <strong>
                   {filtered.length} {filtered.length === 1 ? "home" : "homes"}
                 </strong>
-                <span>
-                  {snapshot
-                    ? snapshot.meta.uniqueListings +
-                      " scraped · " +
-                      confirmedCount +
-                      " confirmed · " +
-                      (filtered.length - confirmedCount) +
-                      " to check"
-                    : "Collecting your search…"}
+                <span className="snapshot-counts">
+                  {snapshot ? (
+                    <>
+                      <span>
+                        <Database size={12} aria-hidden="true" />
+                        {snapshot.meta.uniqueListings} scraped
+                      </span>
+                      <span>
+                        <ShieldCheck size={12} aria-hidden="true" />
+                        {confirmedCount} confirmed
+                      </span>
+                      <span>
+                        <CircleHelp size={12} aria-hidden="true" />
+                        {filtered.length - confirmedCount} to check
+                      </span>
+                    </>
+                  ) : (
+                    "Loading your search…"
+                  )}
                 </span>
               </div>
               <label>
@@ -1859,7 +1966,12 @@ function App() {
                   ["walk", "Walk to Louvre"],
                 ].map(([key, label]) => (
                   <tr key={key}>
-                    <th>{label}</th>
+                    <th>
+                      <span className="fact-heading">
+                        <FactIcon name={key} size={16} />
+                        {label}
+                      </span>
+                    </th>
                     {compare.map((id) => {
                       const s = stays.find((x) => x.id === id)!;
                       const v = value(s, key);

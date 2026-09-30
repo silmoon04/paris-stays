@@ -1,13 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  ArrowUpRight,
-  Heart,
-  MapPin,
-  RotateCcw,
-  Search,
-  Star,
-  X,
-} from "lucide-react";
+import { ArrowUpRight, Heart, RotateCcw, Search, Star, X } from "lucide-react";
 import type * as Leaflet from "leaflet";
 import {
   coverIndex,
@@ -19,6 +11,9 @@ import {
   LOUVRE,
   type Stay,
 } from "./domain";
+import { ListingImage } from "./ListingImage";
+import { FactIcon } from "./FactIcon";
+import { WalkTimes } from "./WalkTimes";
 import { mergeOverlappingGroups } from "./map-clusters";
 import { createVectorBasemap, type BasemapController } from "./vector-basemap";
 import "leaflet/dist/leaflet.css";
@@ -60,9 +55,7 @@ export default function StayMap(props: Props) {
       items: Stay[];
       left: number;
       top: number;
-    } | null>(null),
-    [photoLoaded, setPhotoLoaded] = useState(false),
-    [photoFailed, setPhotoFailed] = useState(false);
+    } | null>(null);
   const timers = useRef<{
     show?: ReturnType<typeof setTimeout>;
     hide?: ReturnType<typeof setTimeout>;
@@ -146,7 +139,7 @@ export default function StayMap(props: Props) {
         L.marker(LOUVRE, {
           icon: L.divIcon({
             className: "landmark",
-            html: "<span>▥ Louvre</span>",
+            html: '<span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 9 9-6 9 6H3Z M5 10v8 M10 10v8 M14 10v8 M19 10v8 M3 21h18"/></svg>Louvre</span>',
             iconSize: [90, 28],
             iconAnchor: [45, 14],
           }),
@@ -259,8 +252,6 @@ export default function StayMap(props: Props) {
             clearTimeout(timers.current.hide);
             const pt = map.latLngToContainerPoint(marker.getLatLng());
             setPreview({ items: p.items, left: pt.x, top: pt.y });
-            setPhotoLoaded(false);
-            setPhotoFailed(false);
           }
         });
         button.addEventListener("mouseenter", () => {
@@ -271,12 +262,19 @@ export default function StayMap(props: Props) {
             if (!p) return;
             const pt = map.latLngToContainerPoint(marker.getLatLng());
             setPreview({ items: p.items, left: pt.x, top: pt.y });
-            setPhotoLoaded(false);
-            setPhotoFailed(false);
             latest.current.onHover(p.items[0].id);
           }, 120);
         });
         button.addEventListener("mouseleave", hide);
+        button.addEventListener("focus", () => {
+          const p = pins.get(key);
+          if (!p) return;
+          clearTimeout(timers.current.hide);
+          const pt = map.latLngToContainerPoint(marker.getLatLng());
+          setPreview({ items: p.items, left: pt.x, top: pt.y });
+          latest.current.onHover(p.items[0].id);
+        });
+        button.addEventListener("blur", hide);
       }
       pin.items = [...items].sort(
         (a, b) =>
@@ -329,6 +327,38 @@ export default function StayMap(props: Props) {
     highlight();
   }, [props.hovered, props.selected]);
   useEffect(() => {
+    if (!ready) return;
+    clearTimeout(timers.current.show);
+    clearTimeout(timers.current.hide);
+    if (!props.hovered) {
+      timers.current.hide = setTimeout(() => setPreview(null), 190);
+      return () => clearTimeout(timers.current.hide);
+    }
+    const home = props.stays.find((s) => s.id === props.hovered),
+      r = runtime.current;
+    if (!home || !r) return;
+    const pin = [...r.pins.values()].find((p) =>
+      p.items.some((s) => s.id === home.id),
+    );
+    const pt = pin
+      ? r.map.latLngToContainerPoint(pin.marker.getLatLng())
+      : { x: r.map.getSize().x / 2, y: 100 };
+    timers.current.show = setTimeout(
+      () =>
+        setPreview((current) =>
+          current?.items[0].id === home.id
+            ? current
+            : {
+                items: [home],
+                left: pt.x,
+                top: pt.y,
+              },
+        ),
+      120,
+    );
+    return () => clearTimeout(timers.current.show);
+  }, [ready, props.hovered, props.stays]);
+  useEffect(() => {
     if (ready && runtime.current && props.sheet !== "full")
       fitAreas(runtime.current.map);
   }, [ready, props.sheet]);
@@ -347,7 +377,11 @@ export default function StayMap(props: Props) {
     top = preview
       ? Math.max(
           75,
-          Math.min(preview.top + 24, (el.current?.clientHeight ?? 500) - 330),
+          Math.min(
+            preview.top + 24,
+            (el.current?.clientHeight ?? 500) -
+              (preview.items.length > 1 ? 610 : 500),
+          ),
         )
       : 0;
   return (
@@ -393,38 +427,42 @@ export default function StayMap(props: Props) {
       {preview && stay && (
         <div
           className="map-preview"
-          style={{ left, top, width }}
-          onMouseEnter={() => clearTimeout(timers.current.hide)}
+          style={{
+            left,
+            top,
+            width,
+            maxHeight: Math.max(
+              120,
+              (el.current?.clientHeight ?? 500) - top - 18,
+            ),
+          }}
+          onMouseEnter={() => {
+            clearTimeout(timers.current.hide);
+            props.onHover(stay.id);
+          }}
           onMouseLeave={hide}
         >
           <button
             className="preview-close"
             aria-label="Close map preview"
-            onClick={() => setPreview(null)}
+            onClick={() => {
+              setPreview(null);
+              props.onHover(null);
+            }}
           >
             <X size={16} />
           </button>
           <button
             className="preview-photo"
+            aria-label={"View " + stay.title}
             onClick={() => props.onOpen(stay.id)}
           >
-            {photo && !photoFailed ? (
-              <img
-                src={
-                  photo.url + (photo.url.includes("?") ? "&" : "?") + "im_w=480"
-                }
-                alt={photo.caption || stay.title}
-                decoding="async"
-                className={photoLoaded ? "loaded" : ""}
-                onLoad={() => setPhotoLoaded(true)}
-                onError={() => setPhotoFailed(true)}
-              />
-            ) : (
-              <MapPin />
-            )}
-            {stay.enrichment?.photoReview && (
-              <span>Photo selected with AI</span>
-            )}
+            <ListingImage
+              url={photo?.url}
+              alt={photo?.caption || stay.title}
+              width={480}
+              eager
+            />
           </button>
           <div className="preview-info">
             <button
@@ -439,7 +477,9 @@ export default function StayMap(props: Props) {
               {stay.rating ?? "No rating"} · {stay.reviewCount ?? "?"} reviews
             </p>
             <p>
+              <FactIcon name="properBeds" size={14} />
               {factDisplay(stay, "properBeds")} proper beds ·{" "}
+              <FactIcon name="toilets" size={14} />
               {factDisplay(stay, "toilets")} WCs
             </p>
             <b>{money(stay.quote.total)}</b>
@@ -449,6 +489,7 @@ export default function StayMap(props: Props) {
               {stay.quote.complete ? " · incl. taxes" : " · total to verify"}
             </small>
             {props.saved.has(stay.id) && <Heart size={13} fill="#ff385c" />}
+            <WalkTimes stay={stay} compact />
           </div>
           {preview.items.length > 1 && (
             <div className="cluster-list">
