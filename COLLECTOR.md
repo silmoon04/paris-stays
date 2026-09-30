@@ -32,7 +32,7 @@ To stop logon startup as well, disable the named task in Windows Task Scheduler.
 - Listing opens, photo selection, image load/failure events, scroll depth, comparisons, saves/hides and outbound Airbnb clicks. Written reasons and notes are excluded.
 - Visible, active viewing time, with a two-minute inactivity cutoff. Background-tab time is excluded. A small beacon sends the final segment when possible; browsers may drop it.
 
-The notice and **My notes → Record activity** let visitors pause logging. Do Not Track and Global Privacy Control are honoured. Clearing activity requests deletion of that visitor's server records while connected; an offline deletion cannot reach the laptop, but local activity is still cleared. Server records expire after 90 days. Search text, written notes, passwords, Wi-Fi identifiers, precise geolocation, keystrokes and microphone/camera content are not collected. QA sessions can be marked with `?qa=1` for testing.
+The notice and **My notes → Record activity** let visitors pause logging. Do Not Track and Global Privacy Control are honoured. Clearing activity requests deletion of that visitor's server records while connected; an offline deletion cannot reach the laptop, but local activity is still cleared. Server records expire after 90 days. Search text, written notes, passwords, Wi-Fi identifiers, precise geolocation, keystrokes and microphone/camera content are not collected. QA sessions are marked with `?qa=1` and excluded from visitor totals by default. The local dashboard can include them explicitly.
 
 ## Original share link and tunnel restarts
 
@@ -45,3 +45,7 @@ Quick Tunnels have no uptime guarantee and are intended for development. This se
 `npx tsx scripts/cache-photos.ts` caches in-area cover photos and full galleries for current default matches. The site uses these static files first and retains Airbnb CDN URLs as fallbacks. This snapshot has 161 cached photos, about 7.2 MB total. Only images near the viewport load. Phone details have larger controls, horizontally scrolling categories and swipe navigation. Descriptions recover paragraphs, headings and lists without executing HTML.
 
 Every unconfirmed home has a short, copyable draft. **My notes → Download host messages** exports messages and listing links for the current results. `npx tsx scripts/host-messages.ts` also writes the two current default drafts to private `artifacts/host-messages.txt` and `.json`. Nothing is sent through Airbnb automatically, and host replies are not yet imported.
+
+## Publishing another build
+
+Pull the private `gh-pages` checkout before running `node scripts/stage-static.mjs`. It copies only the public release files and preserves the newest runtime configuration from the build, current collector and Pages checkout, so a new build cannot restore an expired tunnel address. Review and push the staged checkout. Source staging remains `node scripts/stage-release.mjs`.

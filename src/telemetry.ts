@@ -110,7 +110,8 @@ export class UsageCollector {
     const cancel = () => abort.abort(); parent?.addEventListener("abort", cancel, { once: true });
     const timer = setTimeout(cancel, route.includes(".trycloudflare.com") ? 12000 : 5000);
     try {
-      const r = await this.fetcher(route, { method: body ? "POST" : "GET", body: body ? JSON.stringify(body) : undefined,
+      const fetchRequest = this.fetcher;
+      const r = await fetchRequest(route, { method: body ? "POST" : "GET", body: body ? JSON.stringify(body) : undefined,
         headers: body ? { "Content-Type": "application/json" } : undefined, cache: "no-store", credentials: "omit", signal: abort.signal });
       if (!r.ok) throw new Error("Collector unavailable"); return await r.json();
     } finally { clearTimeout(timer); parent?.removeEventListener("abort", cancel); }

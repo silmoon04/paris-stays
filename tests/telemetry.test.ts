@@ -52,6 +52,20 @@ test("DNT and global privacy controls suppress collection", async t => {
   navigator.doNotTrack = "0"; navigator.globalPrivacyControl = true; c.start(true); assert.equal(c.state, "paused");
   assert.equal(requests, 0);
 });
+test("browser fetch is called without the collector as its receiver", async t => {
+  browserGlobals(t);
+  const fetcher: typeof fetch = async function (this: unknown, url, options) {
+    assert.equal(this, undefined, "Native browser fetch rejects a non-window receiver");
+    const body = options?.body ? JSON.parse(String(options.body)) : undefined;
+    const data = String(url).includes("runtime") ? { collectorUrl: "https://test.trycloudflare.com" }
+      : String(url).endsWith("health") ? { service: "paris-stays", version: 1 }
+      : String(url).endsWith("session") ? { token: "test-token" }
+      : { acceptedIds: body.events.map((e: { id: string }) => e.id) };
+    return new Response(JSON.stringify(data));
+  };
+  const c = new UsageCollector("/runtime.json", fetcher); t.after(() => c.stop()); c.start(true);
+  await new Promise(setImmediate); assert.equal(c.state, "online");
+});
 test("viewing time excludes hidden tabs and is attributed to the opened listing", async t => {
   const { document } = browserGlobals(t); let clock = 1000;
   t.mock.method(performance, "now", () => clock);

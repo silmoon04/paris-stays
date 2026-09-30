@@ -152,17 +152,23 @@ export function createCollector({ directory, origins, snapshotPath }) {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'" });
       return res.end(readFileSync(new URL("./collector-dashboard.html", import.meta.url)));
     }
-    if (req.url === "/api/summary") {
+    const adminUrl = new URL(req.url, "http://localhost");
+    const includeTests = adminUrl.searchParams.get("includeTests") === "1";
+    const sessionScope = includeTests ? "1=1" : "coalesce(json_extract(device,'$.testSession'),0)=0";
+    const eventScope = `session_id IN (SELECT session_id FROM sessions WHERE ${sessionScope})`;
+    if (adminUrl.pathname === "/api/summary") {
       return reply(res, 200, {
-        totals: db.prepare("SELECT (SELECT count(*) FROM sessions) sessions,(SELECT count(DISTINCT visitor_id) FROM sessions) visitors,(SELECT count(*) FROM events) events").get(),
-        types: db.prepare("SELECT type,count(*) count FROM events GROUP BY type ORDER BY count DESC").all(),
-        listings: db.prepare("SELECT listing_id,count(*) events,sum(CASE WHEN type='open' THEN 1 ELSE 0 END) opens,sum(CASE WHEN type='source' THEN 1 ELSE 0 END) airbnb_clicks,sum(CASE WHEN type='view_time' THEN json_extract(data,'$.durationMs') ELSE 0 END) viewing_ms FROM events WHERE listing_id IS NOT NULL GROUP BY listing_id ORDER BY opens DESC LIMIT 100").all(),
-        sessions: db.prepare("SELECT * FROM sessions ORDER BY last_at DESC LIMIT 100").all().map(s => ({ ...s, device: JSON.parse(s.device), network: JSON.parse(s.network) })),
+        totals: db.prepare(`SELECT (SELECT count(*) FROM sessions WHERE ${sessionScope}) sessions,(SELECT count(DISTINCT visitor_id) FROM sessions WHERE ${sessionScope}) visitors,(SELECT count(*) FROM events WHERE ${eventScope}) events`).get(),
+        testSessions: db.prepare("SELECT count(*) count FROM sessions WHERE json_extract(device,'$.testSession')=1").get().count,
+        includeTests,
+        types: db.prepare(`SELECT type,count(*) count FROM events WHERE ${eventScope} GROUP BY type ORDER BY count DESC`).all(),
+        listings: db.prepare(`SELECT listing_id,count(*) events,sum(CASE WHEN type='open' THEN 1 ELSE 0 END) opens,sum(CASE WHEN type='source' THEN 1 ELSE 0 END) airbnb_clicks,sum(CASE WHEN type='view_time' THEN json_extract(data,'$.durationMs') ELSE 0 END) viewing_ms FROM events WHERE listing_id IS NOT NULL AND ${eventScope} GROUP BY listing_id ORDER BY opens DESC LIMIT 100`).all(),
+        sessions: db.prepare(`SELECT * FROM sessions WHERE ${sessionScope} ORDER BY last_at DESC LIMIT 100`).all().map(s => ({ ...s, device: JSON.parse(s.device), network: JSON.parse(s.network) })),
       });
     }
-    if (req.url?.startsWith("/api/events")) {
-      const sid = new URL(req.url, "http://localhost").searchParams.get("session");
-      const rows = sid && ID.test(sid) ? db.prepare("SELECT * FROM events WHERE session_id=? ORDER BY at DESC LIMIT 500").all(sid) : db.prepare("SELECT * FROM events ORDER BY received_at DESC LIMIT 300").all();
+    if (adminUrl.pathname === "/api/events") {
+      const sid = adminUrl.searchParams.get("session");
+      const rows = sid && ID.test(sid) ? db.prepare(`SELECT * FROM events WHERE session_id=? AND ${eventScope} ORDER BY at DESC LIMIT 500`).all(sid) : db.prepare(`SELECT * FROM events WHERE ${eventScope} ORDER BY received_at DESC LIMIT 300`).all();
       return reply(res, 200, rows.map(e => ({ ...e, data: JSON.parse(e.data) })));
     }
     return reply(res, 404, { error: "Not found" });

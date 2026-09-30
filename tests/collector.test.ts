@@ -37,6 +37,17 @@ test("collector accepts allowed events once, rejects other origins and protects 
   assert.equal((await fetch(api + "/api/summary")).status, 404);
   assert.equal((await fetch(admin + "/api/summary", { headers: { Origin: "https://silmoon04.github.io" } })).status, 403);
   assert.equal((await fetch(admin + "/api/summary")).status, 200);
+  const testVisitor = randomUUID(), testSession = randomUUID();
+  const testToken = await (await post("/v1/session", { visitorId: testVisitor, sessionId: testSession, device: { testSession: true } })).json();
+  await post("/v1/events", { visitorId: testVisitor, sessionId: testSession, token: testToken.token, events: [{ ...event, id: randomUUID() }] });
+  const actual = await (await fetch(admin + "/api/summary")).json();
+  assert.deepEqual(actual.totals, { sessions: 1, visitors: 1, events: 1 });
+  assert.equal(actual.testSessions, 1);
+  const withTests = await (await fetch(admin + "/api/summary?includeTests=1")).json();
+  assert.deepEqual(withTests.totals, { sessions: 2, visitors: 2, events: 2 });
+  assert.equal((await (await fetch(admin + "/api/events")).json()).length, 1);
+  assert.equal((await (await fetch(admin + "/api/events?includeTests=1")).json()).length, 2);
+  await post("/v1/clear", { visitorId: testVisitor, sessionId: testSession, token: testToken.token });
   assert.equal((await fetch(api + "/v1/snapshot")).status, 200);
   const preflight = await fetch(api + "/v1/events", { method: "OPTIONS", headers: { Origin: origin } });
   assert.equal(preflight.status, 204);
