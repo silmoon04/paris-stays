@@ -6,6 +6,7 @@ import {
   quoteMatchesTrip,
   checks,
   FACT_LABELS,
+  isBathroomCount,
   type Stay,
   type Fact,
 } from "./domain";
@@ -79,6 +80,8 @@ export function filterChecks(s: Stay, f: Filters) {
   return missing;
 }
 export function matches(s: Stay, f: Filters, omit?: string) {
+  // A missing or photographic WC count cannot qualify, even with unknowns enabled.
+  if (omit !== "toilets" && typeof value(s, "toilets") !== "number") return false;
   if (
     (f.zone === "all" && !s.zones.length) ||
     (f.zone === "west" && !s.zones.includes("west")) ||
@@ -137,8 +140,11 @@ export function matches(s: Stay, f: Filters, omit?: string) {
     return false;
   return Object.entries(f.rules).every(
     ([key, rule]) =>
-      key === omit || passes(ruleValue(s, key, rule), rule, f.includeUnknown),
+      key === omit || passes(ruleValue(s, key, rule), rule, includesUnknown(f, key)),
   );
+}
+export function includesUnknown(f: Filters, key: string) {
+  return f.includeUnknown && !isBathroomCount(key);
 }
 export function facet(stays: Stay[], f: Filters, key: string, rule: Rule) {
   const others = stays.filter((s) => matches(s, f, key));
@@ -156,7 +162,7 @@ export function facet(stays: Stay[], f: Filters, key: string, rule: Rule) {
     if (v === null || v === undefined) unknown++;
     else if (passes(v, rule, false)) known++;
   }
-  return { known, unknown, total: known + (f.includeUnknown ? unknown : 0) };
+  return { known, unknown, total: known + (includesUnknown(f, key) ? unknown : 0) };
 }
 export function recovery(stays: Stay[], f: Filters) {
   const suggestions: { label: string; filters: Filters; count: number }[] = [];

@@ -9,6 +9,8 @@ import {
   walkingMinutes,
   LANDMARKS,
   accessSummary,
+  fact,
+  value,
   type Stay,
   type Fact,
 } from "../src/domain";
@@ -94,11 +96,11 @@ test("metadata establishes that fewer than four total beds or three bedrooms can
   delete s.facts.bedrooms;
   assert.equal(matches(s, DEFAULT_FILTERS), false);
 });
-test("partial photo counts remain unknown against the stricter defaults and need confirmation", () => {
+test("partial photo bed counts remain unknown but photographic WCs are excluded", () => {
   const s = home();
   s.facts.properBeds = f(3, { extent: "at-least", source: "photos" });
   s.facts.toilets = f(2, { extent: "at-least", source: "photos" });
-  assert.equal(matches(s, DEFAULT_FILTERS), true);
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
   assert.ok(filterChecks(s, DEFAULT_FILTERS).includes("Proper beds"));
   assert.ok(filterChecks(s, DEFAULT_FILTERS).includes("Toilet count"));
   assert.equal(matches(s, { ...DEFAULT_FILTERS, includeUnknown: false }), false);
@@ -163,7 +165,7 @@ test("one pictured WC does not prove fewer than two exist", () => {
   assert.equal(contradictions(s).length, 0);
   assert.ok(checks(s).includes("Toilet count"));
 });
-test("partial counts preserve unknown filter semantics", () => {
+test("photographic WC counts are reported as excluded unknowns in facets", () => {
   const s = home();
   s.facts.toilets = f(2, {
     source: "photos",
@@ -171,13 +173,63 @@ test("partial counts preserve unknown filter semantics", () => {
     extent: "at-least",
   });
   const filters = { ...DEFAULT_FILTERS, rules: { toilets: { min: 3 } } };
-  assert.equal(matches(s, filters), true);
+  assert.equal(matches(s, filters), false);
   assert.equal(matches(s, { ...filters, includeUnknown: false }), false);
   assert.deepEqual(facet([s], filters, "toilets", { min: 3 }), {
     known: 0,
     unknown: 1,
-    total: 1,
+    total: 0,
   });
+});
+test("unknown WC counts stay excluded when filters are removed or contradictions are shown", () => {
+  const s = home({ bathrooms: 3 });
+  delete s.facts.toilets;
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+  assert.equal(matches(s, { ...DEFAULT_FILTERS, rules: {}, includeExcluded: true }), false);
+});
+test("repeated bathroom photos cannot qualify or add a toilet ranking bonus", () => {
+  const s = home(), unknown = home();
+  delete unknown.facts.toilets;
+  s.facts.toilets = f(3, { source: "photos", extent: "at-least", photoIndices: [0, 1, 2] });
+  assert.equal(value(s, "toilets"), undefined);
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+  assert.equal(ranking(s).score, ranking(unknown).score);
+});
+test("photo enrichment cannot replace a supported listing WC count", () => {
+  const s = home();
+  s.enrichment = { model: "gpt-6-luna", inputHash: "abc", reviewedAt: new Date().toISOString(), summary: "",
+    facts: { toilets: f(4, { source: "photos", extent: "at-least" }) } };
+  assert.equal(value(s, "toilets"), 3);
+  assert.equal(fact(s, "toilets")?.source, "listing");
+  assert.equal(matches(s, DEFAULT_FILTERS), true);
+  s.facts.toilets = f(2);
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+});
+test("uncertain or review-derived WC counts cannot qualify", () => {
+  for (const extra of [{ confidence: "low" }, { conflicts: ["Listing elsewhere says two WCs"] }, { source: "reviews" }] as Partial<Fact>[]) {
+    const s = home();
+    s.facts.toilets = f(3, extra);
+    assert.equal(value(s, "toilets"), undefined);
+    assert.equal(matches(s, DEFAULT_FILTERS), false);
+  }
+});
+test("compatible listing lower bounds qualify while conflicting totals are excluded", () => {
+  const s = home();
+  s.facts.toilets = f(1, { extent: "at-least" });
+  s.enrichment = { model: "gpt-6-luna", inputHash: "abc", reviewedAt: new Date().toISOString(), summary: "",
+    facts: { toilets: f(3) } };
+  assert.equal(matches(s, DEFAULT_FILTERS), true);
+  s.facts.toilets = f(2);
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+  assert.equal(value(s, "toilets"), undefined);
+});
+test("photo shower counts are hidden but qualitative layout evidence remains usable", () => {
+  const s = home();
+  s.facts.showers = f(3, { source: "photos", extent: "at-least" });
+  s.facts.showerLayout = f("over-bath", { source: "photos" });
+  assert.equal(value(s, "showers"), undefined);
+  assert.equal(value(s, "showerLayout"), "over-bath");
+  assert.equal(matches(s, { ...DEFAULT_FILTERS, rules: { ...DEFAULT_FILTERS.rules, showers: { min: 1 } } }), false);
 });
 test("over-bath shower qualifies while stairs remain separate", () => {
   const s = home();

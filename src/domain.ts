@@ -331,7 +331,26 @@ export function value(stay: Stay, key: string): Fact["value"] | undefined {
   return f?.conflicts?.length ? undefined : f?.value;
 }
 export function fact(stay: Stay, key: string): Fact | undefined {
+  if (isBathroomCount(key)) {
+    const candidates = [stay.enrichment?.facts[key], stay.facts[key]];
+    const listingFacts = candidates.filter((f): f is Fact =>
+      !!f && f.source === "listing",
+    );
+    if (listingFacts.some((f) => f.conflicts?.length)) return undefined;
+    const supported = listingFacts.filter((f) =>
+      f.confidence !== "low" && typeof f.value === "number" &&
+      Number.isInteger(f.value) && f.value >= 0,
+    );
+    const exact = supported.filter((f) => f.extent !== "at-least");
+    if (exact.some((a) => supported.some((b) =>
+      b.extent === "at-least" ? Number(b.value) > Number(a.value) : b.value !== a.value,
+    ))) return undefined;
+    return exact[0] ?? supported.sort((a, b) => Number(b.value) - Number(a.value))[0];
+  }
   return stay.enrichment?.facts[key] ?? stay.facts[key];
+}
+export function isBathroomCount(key: string) {
+  return key === "toilets" || key === "showers" || key === "bathrooms";
 }
 export function factDisplay(stay: Stay, key: string) {
   const f = fact(stay, key),

@@ -85,6 +85,32 @@ class EvidenceTests(unittest.TestCase):
         photo=copy.deepcopy(e);photo['facts']={'toilets':{**base,'source':'photos','value':2,'evidence':'Two angles of a WC','photoIndices':[0]}}
         self.assertEqual(p.validate_enrichment(photo,hash_,ev['images'],ev,[],'123',[])['facts'],{})
 
+    def test_photo_counts_are_discarded_even_with_valid_lower_bound_provenance(self):
+        r=row();ev=p.structured_evidence(r);hash_=p.hash_evidence(ev,[])
+        photo={'source':'photos','confidence':'high','value':3,'extent':'at-least','evidence':'Three bathroom views',
+               'photoIndices':[0],'reviewedAt':'2026-09-30T00:00:00Z'}
+        e={'model':'gpt-6-luna','inputHash':hash_,'reviewedAt':photo['reviewedAt'],
+           'summary':'Photos show three WCs. Bright kitchen.',
+           'facts':{'toilets':photo,'showers':photo,'showerLayout':{**photo,'value':'over-bath'}},
+           'photoReview':{'viewedPhotoIndices':[0],'bestPhotoIndex':0,'bestPhotoReason':'Bathroom view',
+               'kitchenPhotoIndices':[],'bathroomPhotoIndices':[0],'bedPhotoIndices':[],'accessPhotoIndices':[],'issues':[]},
+           'deepReview':{'reviewedAt':photo['reviewedAt'],'photoIndices':[0],'note':'Two photographed shower rooms. A bathtub edge is visible.'}}
+        errors=[];result=p.validate_enrichment(e,hash_,ev['images'],ev,[],'123',errors)
+        self.assertEqual(set(result['facts']),{'showerLayout'})
+        self.assertEqual(errors,[])
+        self.assertEqual(result['summary'],'Bright kitchen.')
+        self.assertEqual(result['deepReview']['note'],'A bathtub edge is visible.')
+        self.assertEqual(result['photoReview']['bathroomPhotoIndices'],[0])
+
+    def test_ai_prose_removes_bathroom_counts_without_removing_qualitative_observations(self):
+        text='Photos show two WCs and one distinct shower. Separate bathroom rooms each show a WC. The kitchen is fitted. A tiled shower room is visible.'
+        self.assertEqual(p.without_bathroom_count_claims(text),'The kitchen is fitted. A tiled shower room is visible.')
+        self.assertEqual(p.without_bathroom_count_claims('Four bedroom beds, a table with six chairs and a tiled shower room are visible.'),
+                         'Four bedroom beds, a table with six chairs and a tiled shower room are visible.')
+        self.assertFalse(p.supported_bathroom_count({'source':'listing','confidence':'low','value':3}))
+        self.assertFalse(p.supported_bathroom_count({'source':'reviews','confidence':'high','value':3}))
+        self.assertTrue(p.supported_bathroom_count({'source':'listing','confidence':'high','value':3}))
+
 class BudgetTests(unittest.TestCase):
     def test_phase_and_all_keys_share_one_cap(self):
         runs=[{'phase':'discovery','cap':2.5,'charged':2.3,'key':'key1'},{'phase':'reviews','cap':1.5,'charged':1.4,'key':'key2'},

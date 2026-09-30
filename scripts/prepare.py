@@ -573,6 +573,24 @@ FACT_ENUMS = {
     'kitchenQuality': {'modern', 'functional', 'dated'},
     'tableImpression': {'spacious', 'compact'},
 }
+BATHROOM_COUNT_KEYS = {'toilets', 'showers', 'bathrooms'}
+
+def supported_bathroom_count(item):
+    return (isinstance(item, dict) and item.get('source') == 'listing' and
+            item.get('confidence') in ('high', 'medium') and not item.get('conflicts') and
+            isinstance(item.get('value'), (int, float)) and not isinstance(item['value'], bool) and
+            item['value'] >= 0 and float(item['value']).is_integer())
+
+def without_bathroom_count_claims(text):
+    """Keep AI prose qualitative; numeric facility counts come from sourced facts."""
+    facilities = r'(?:bathrooms?|WCs?|toilets?|showers?|lavator(?:y|ies))'
+    count = r'(?:\d+(?:[.,]\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|another|additional)'
+    count_claim = rf'\b{count}\s+(?:(?:distinct|separate|photographed|dedicated|full|en-suite|ensuite|walk-in|shower|only|bath|room|and)\s+){{0,4}}{facilities}\b'
+    sentences = re.split(r'(?<=[.!?])\s+', clean_text(text))
+    return ' '.join(sentence for sentence in sentences if not (
+        re.search(count_claim, sentence, re.I) or
+        (re.search(rf'\b{facilities}\b', sentence, re.I) and re.search(r'\b(?:each|both)\b', sentence, re.I))
+    ))
 
 def evidence_fragments(value):
     """Extract exact quoted text, or exact fragments split by the supported separators."""
@@ -638,6 +656,10 @@ def validate_enrichment(enrichment, input_hash, images, evidence, reviews, expec
         return None
     accepted_facts = {}
     for key, item in raw_facts.items():
+        # Multiple photo angles cannot establish separate facilities. Review counts
+        # and uncertain listing counts also cannot qualify as listing evidence.
+        if key in BATHROOM_COUNT_KEYS and not supported_bathroom_count(item):
+            continue
         reason = None
         if key not in FACT_TYPES:
             reason = 'fact key is not in the supported domain contract'
@@ -689,6 +711,8 @@ def validate_enrichment(enrichment, input_hash, images, evidence, reviews, expec
     if not isinstance(summary, str) or len(clean_text(summary)) > 360:
         errors.append({'id': expected_id, 'key': 'summary', 'reason': 'summary must be a short string'})
         enrichment['summary'] = ''
+    else:
+        enrichment['summary'] = without_bathroom_count_claims(summary)
     deep_review = enrichment.get('deepReview')
     if deep_review is not None:
         indices = deep_review.get('photoIndices') if isinstance(deep_review, dict) else None
@@ -697,6 +721,12 @@ def validate_enrichment(enrichment, input_hash, images, evidence, reviews, expec
                 any(isinstance(i, bool) or not isinstance(i, int) or i not in viewed for i in indices)):
             record_error('deepReview', 'deepReview photo indices or fields lack viewed-photo provenance')
             return None
+        enrichment['deepReview'] = {**deep_review, 'note': without_bathroom_count_claims(deep_review['note'])}
+    if enrichment.get('photoReview'):
+        enrichment['photoReview'] = {**enrichment['photoReview'], 'issues': [
+            clean for issue in enrichment['photoReview']['issues']
+            if (clean := without_bathroom_count_claims(issue))
+        ]}
     return enrichment
 
 def normalize(rows, runs, reviews_by_listing=None, validation_errors=None):
@@ -725,6 +755,8 @@ def normalize(rows, runs, reviews_by_listing=None, validation_errors=None):
         reviews = list(reviews_by_listing.get(ident) or review_evidence(row))
         input_hash = hash_evidence(evidence, reviews)
         facts = listing_facts(row)
+        facts = {key: item for key, item in facts.items()
+                 if key not in BATHROOM_COUNT_KEYS or supported_bathroom_count(item)}
         enrichment_path = PRIVATE / 'enrichment' / f'{ident}.json'
         enrichment = read(enrichment_path)
         enrichment = validate_enrichment(enrichment, input_hash, evidence['images'], evidence, reviews, ident, validation_errors)

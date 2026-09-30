@@ -32,6 +32,16 @@ for (const s of snapshot.stays) {
   const detail = JSON.parse(await readFile(path.join(out, "data/details", s.id + ".json"), "utf8"));
   assert.ok(s.photos.length <= 1, "Only the cover belongs in the search download");
   assert.equal(s.photoCount, detail.photos.length, "Gallery count does not match");
+  for (const facts of [s.facts, s.enrichment?.facts, detail.facts, detail.enrichment?.facts]) {
+    for (const key of ["toilets", "showers", "bathrooms"]) {
+      const item = facts?.[key];
+      if (!item) continue;
+      assert.equal(item.source, "listing", `${s.id}: ${key} must come from the listing`);
+      assert.ok(item.confidence !== "low" && !item.conflicts?.length,
+        `${s.id}: uncertain bathroom count cannot be published`);
+      assert.ok(Number.isInteger(item.value) && item.value >= 0);
+    }
+  }
   assert.match(s.id, /^\d{1,25}$/);
   assert.equal(new URL(s.url).hostname, "www.airbnb.com");
   for (const p of [...s.photos, ...detail.photos]) {

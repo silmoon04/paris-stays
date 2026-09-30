@@ -73,6 +73,7 @@ import {
   filterChecks,
   matches,
   recovery,
+  includesUnknown,
   type Filters,
   type Rule,
 } from "./filters";
@@ -393,11 +394,10 @@ function StayCard({
   );
 }
 function Evidence({ stay, detail }: { stay: Stay; detail?: Detail }) {
-  const facts = { ...stay.facts, ...stay.enrichment?.facts };
   return (
     <div className="evidence-grid">
       {FIELDS.map((f) => {
-        const item = facts[f.key];
+        const item = fact(stay, f.key);
         return (
           <div key={f.key} className={!item ? "unknown-fact" : ""}>
             <span className="fact-heading">
@@ -911,15 +911,16 @@ function FiltersPanel({
         <div className="filter-notice">
           <Info size={18} />
           <p>
-            Missing details stay included. Numbers show homes matching your
-            other filters, plus those with this detail unknown.
+            WC counts must be supported by the listing. Unknown and photo-only
+            counts are excluded. Other missing details stay included; each
+            number shows matches for your other filters.
           </p>
         </div>
         <label className="toggle-row">
           <span>
             <b>Include unknown information</b>
             <small>
-              Exclude known contradictions, keep homes you can check.
+              Keep other missing details. Bathroom counts always need listing evidence.
             </small>
           </span>
           <input
@@ -1050,7 +1051,7 @@ function FiltersPanel({
                       <FactIcon name={field.key} size={16} />
                       {field.label}
                     </span>
-                    <small>{unknown} unknown</small>
+                    <small>{unknown} unknown{field.key === "toilets" || field.key === "showers" ? " · excluded" : ""}</small>
                   </label>
                   {field.kind === "boolean" ? (
                     <div
@@ -1116,7 +1117,7 @@ function FiltersPanel({
                         );
                       }}
                     >
-                      <option value="">Any · unknown included</option>
+                      <option value="">{field.key === "toilets" || field.key === "showers" ? "Any stated count" : filters.includeUnknown ? "Any · unknown included" : "Any · unknown excluded"}</option>
                       {field.kind === "enum"
                         ? field.options?.map((o) => {
                             const c = facet(stays, filters, field.key, {
@@ -1151,8 +1152,8 @@ function FiltersPanel({
                               >
                                 {max ? "Up to " : ""}
                                 {n}
-                                {max ? "" : "+"} {field.unit} · {c.known} +{" "}
-                                {filters.includeUnknown ? c.unknown : 0} unknown
+                                {max ? "" : "+"} {field.unit} · {c.total} matches
+                                {c.unknown > 0 ? ` · ${c.unknown} unknown${includesUnknown(filters, field.key) ? " included" : " excluded"}` : ""}
                               </option>
                             );
                           })}
@@ -1315,7 +1316,7 @@ function App() {
   };
   const quickCount = (key: string, r: Rule) => {
     const c = facet(base, effective, key, r);
-    return `${c.known}${filters.includeUnknown && c.unknown ? " + " + c.unknown + " unknown" : ""}`;
+    return `${c.known}${includesUnknown(filters, key) && c.unknown ? " + " + c.unknown + " unknown" : ""}`;
   };
   const save = (id: string) =>
     setNote({ id, type: "save", text: workspace.records[id]?.whyLike ?? "" });
@@ -1614,7 +1615,7 @@ function App() {
               </span>
               <span>
                 <Toilet size={13} aria-hidden="true" />
-                {filters.rules.toilets?.min ?? 2}+ WCs
+                {filters.rules.toilets?.min ?? 2}+ WCs · listing evidence
               </span>
               {filters.rules.bedrooms?.min !== undefined && <span>
                 <DoorOpen size={13} aria-hidden="true" />
@@ -1630,7 +1631,7 @@ function App() {
                 }
               >
                 {filters.includeUnknown
-                  ? "Unknowns included"
+                  ? "Other unknowns included"
                   : "Unknowns excluded in filters"}
               </button>
               {filters.bounds && (
