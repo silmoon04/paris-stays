@@ -2,6 +2,8 @@
 
 [Open the search](https://silmoon04.github.io/paris-stays/).
 
+The optional laptop collector records anonymous visits, clicks, filters, photo navigation, active viewing time and Airbnb clicks while the laptop is online. It runs quietly, reconnects through the existing share link and stores records privately in SQLite. The static site stays usable when disconnected. See [COLLECTOR.md](COLLECTOR.md) for startup, the local dashboard, collected fields and privacy controls. In-area covers and current default galleries are cached on GitHub Pages for phone loading; unconfirmed listings have short copyable host drafts, and descriptions show headings and lists.
+
 A separate Roomway-style search for one entire Paris home, 31 October–4 November 2026, five adults and a £2,500 whole-stay budget. The default filters require at least **four proper beds, three WCs and three bedrooms**. The approximate areas cover Louvre–Tuileries–Palais Royal–Opéra and Châtelet–Les Halles–Pompidou.
 
 The app keeps WCs separate from bathing rooms and excludes sofa beds from proper-bed counts. WC and shower counts require supported listing text or structured listing data; photos and reviews never establish their numbers. Unknown, conflicting or low-confidence WC counts are excluded from search even when other unknown details are included. Known counts below the default minima are hidden. Filters can be relaxed deliberately; the underlying core requirements still exclude fewer than three proper beds or two WCs.

@@ -1,0 +1,11 @@
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { matches, DEFAULT_FILTERS } from "../src/filters";
+import { hostMessageBundle } from "../src/host-messages";
+import type { Snapshot } from "../src/domain";
+const snapshot: Snapshot = JSON.parse(await readFile("public/data/search.json", "utf8"));
+const homes = snapshot.stays.filter(s => matches(s, DEFAULT_FILTERS));
+const drafts = hostMessageBundle(homes);
+await mkdir("artifacts", { recursive: true });
+await writeFile("artifacts/host-messages.json", JSON.stringify(drafts, null, 2) + "\n");
+await writeFile("artifacts/host-messages.txt", drafts.map(d => `${d.title}\n${d.url}\nTo clarify: ${d.missing.join(", ")}\n\n${d.message}\n`).join("\n----------------\n\n"));
+console.log(`Prepared ${drafts.length} host messages for the current unconfirmed matches. Nothing was sent.`);

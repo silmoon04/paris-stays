@@ -45,6 +45,7 @@ import {
   Upload,
   Users,
   X,
+  Copy,
 } from "lucide-react";
 import {
   confirmed,
@@ -91,6 +92,10 @@ import {
 } from "./persistence";
 import "./styles.css";
 import { ListingImage } from "./ListingImage";
+import { usage, logUsage, type ConnectionState } from "./telemetry";
+import { UsageNotice } from "./UsageNotice";
+import { descriptionBlocks } from "./descriptions";
+import { hostMessage, hostMessageBundle } from "./host-messages";
 import { FactIcon } from "./FactIcon";
 import { WalkTimes } from "./WalkTimes";
 import { loadStaticJson } from "./loading";
@@ -178,6 +183,7 @@ function Photo({
     >
       <ListingImage
         url={url}
+        localUrl={stay.photos[index]?.localUrl}
         alt={stay.photos[index]?.caption || stay.title}
         width={720}
         sizes="(max-width: 600px) 34vw, (max-width: 1100px) 180px, 230px"
@@ -249,6 +255,7 @@ function StayCard({
   const isConfirmed = confirmed(stay) && !unknown.length;
   return (
     <article
+      data-listing-id={stay.id}
       className="stay-card"
       data-testid={"stay-" + stay.id}
       onMouseEnter={() => onHover(stay.id)}
@@ -483,7 +490,9 @@ function StayDetails({
   const [index, setIndex] = useState(coverIndex(stay)),
     [detail, setDetail] = useState<Detail>(),
     [detailError, setDetailError] = useState(false),
-    [detailAttempt, setDetailAttempt] = useState(0);
+    [detailAttempt, setDetailAttempt] = useState(0),
+    [copiedMessage, setCopiedMessage] = useState(false);
+  const touchStart = useRef<{ x: number; y: number } | undefined>(undefined);
   useEffect(() => {
     const control = new AbortController();
     setDetailError(false);
@@ -513,11 +522,19 @@ function StayDetails({
     reviewSummary = stay.enrichment?.reviewSummary;
   return (
     <Modal title={stay.title} onClose={onClose} wide>
-      <div className="detail-body">
+      <div className="detail-body" data-listing-id={stay.id}>
         <div className="detail-gallery">
-          <div className="large-photo">
+          <div className="large-photo"
+            onTouchStart={e => { touchStart.current = { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }; }}
+            onTouchEnd={e => {
+              const start = touchStart.current; touchStart.current = undefined;
+              if (!start || photos.length < 2) return;
+              const dx = e.changedTouches[0].clientX - start.x, dy = e.changedTouches[0].clientY - start.y;
+              if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4) change((index + (dx < 0 ? 1 : -1) + photos.length) % photos.length);
+            }}>
             <ListingImage
               url={photo?.url}
+              localUrl={photo?.localUrl}
               alt={photo?.caption || stay.title}
               width={1440}
               sizes="(max-width: 780px) calc(100vw - 32px), (max-width: 1200px) 65vw, 760px"
@@ -599,7 +616,7 @@ function StayDetails({
                 onClick={() => change(i)}
                 aria-label={"Photo " + (i + 1) + ": " + p.caption}
               >
-                <ListingImage url={p.url} alt="" width={240} thumbnail />
+                <ListingImage url={p.url} localUrl={p.localUrl} alt="" width={240} thumbnail />
               </button>
             ))}
           </div>
@@ -838,6 +855,18 @@ function StayDetails({
           </div>
         ) : null}
       </section>
+      {todo.length > 0 && <section className="detail-section host-message" data-listing-id={stay.id}>
+        <h3><MessageSquare size={18} aria-hidden="true" />Ask the host</h3>
+        <p>A draft to confirm the missing details. Copy it and send it through Airbnb.</p>
+        <textarea readOnly aria-label="Message to the Airbnb host" value={hostMessage(stay, filters)} />
+        <div className="host-message-actions">
+          <button onClick={async () => {
+            try { await navigator.clipboard.writeText(hostMessage(stay, filters)); setCopiedMessage(true); logUsage("host_message", stay.id, { source: "copy" }); }
+            catch { setCopiedMessage(false); }
+          }}><Copy size={16} />{copiedMessage ? "Copied" : "Copy message"}</button>
+          <a href={stay.url} target="_blank" rel="noopener noreferrer">Open on Airbnb <ArrowUpRight size={15} /></a>
+        </div>
+      </section>}
       <section className="detail-section">
         <h3>Listing description</h3>
         {detailError ? (
@@ -848,9 +877,13 @@ function StayDetails({
             </a>
           </p>
         ) : (
-          <p className="description">
-            {detail?.description || "Loading listing details…"}
-          </p>
+          <div className="description">
+            {detail ? descriptionBlocks(detail.description).map((block, i) =>
+              block.kind === "heading" ? <h4 key={i}>{block.text}</h4> :
+              block.kind === "list" ? <ul key={i}>{block.items?.map((item, n) => <li key={n}>{item}</li>)}</ul> :
+              <p key={i}>{block.text}</p>
+            ) : <p>Loading listing details…</p>}
+          </div>
         )}
         {detail?.rules.length ? <p>{detail.rules.join(" · ")}</p> : null}
       </section>
@@ -1209,6 +1242,7 @@ function App() {
     [bounds, setBounds] = useState<[number, number, number, number]>(),
     [sheet, setSheet] = useState<"peek" | "half" | "full">("half"),
     [shared, setShared] = useState(() => readSharedIds(location.hash));
+  const [connection, setConnection] = useState<ConnectionState>("paused");
   const importer = useRef<HTMLInputElement>(null),
     dragStart = useRef<number | null>(null),
     dragMoved = useRef(false),
@@ -1243,6 +1277,20 @@ function App() {
     if (storageReady)
       void saveWorkspace(workspace).catch(() => setStorageError(true));
   }, [workspace, storageReady]);
+  useEffect(() => usage?.subscribe(setConnection), []);
+  useEffect(() => {
+    if (storageReady) usage?.start(workspace.activityEnabled);
+    return () => usage?.stop();
+  }, [storageReady, workspace.activityEnabled]);
+  useEffect(() => {
+    usage?.view(selected ?? undefined);
+    return () => usage?.view();
+  }, [selected, storageReady, workspace.activityEnabled]);
+  useEffect(() => {
+    if (!hovered) return;
+    const timer = setTimeout(() => logUsage("hover", hovered, { source: "map-or-card" }), 350);
+    return () => clearTimeout(timer);
+  }, [hovered]);
   useEffect(() => {
     if (toast) {
       const id = setTimeout(() => setToast(""), 4500);
@@ -1253,7 +1301,8 @@ function App() {
     type: Activity["type"],
     id?: string,
     data: Record<string, unknown> = {},
-  ) =>
+  ) => {
+    if (type !== "source") logUsage(type, id, data);
     setWorkspace((w) =>
       w.activityEnabled
         ? {
@@ -1273,6 +1322,7 @@ function App() {
           }
         : w,
     );
+  };
   const changeRecord = (id: string, patch: Partial<RecordItem>) =>
     setWorkspace((w) => ({
       ...w,
@@ -1300,7 +1350,9 @@ function App() {
     setPrevious(filters);
     setFilters(next);
     setLimit(12);
-    activity("filter", undefined, { filters: next });
+    const before = stays.filter(s => matches(s, filters)), after = stays.filter(s => matches(s, next));
+    const kept = new Set(after.map(s => s.id));
+    activity("filter", undefined, { filters: next, count: after.length, previousCount: before.length, removedIds: before.filter(s => !kept.has(s.id)).map(s => s.id) });
   };
   const toggleCompare = (id: string) => {
     setCompare((v) =>
@@ -1399,6 +1451,17 @@ function App() {
       Number(filters.onlyConfirmed) +
       Number(!filters.includeUnknown) +
       Number(filters.includeExcluded);
+  useEffect(() => {
+    if (snapshot && storageReady) logUsage("results", undefined, { count: filtered.length, listingIds: filtered.slice(0, 60).map(s => s.id), tab, source: sort });
+  }, [snapshot, filtered, storageReady, tab, sort]);
+  const exportHostMessages = () => {
+    const messages = hostMessageBundle(filtered, effective);
+    const text = messages.map(m => `${m.title}\n${m.url}\n\n${m.message}\n`).join("\n----------------\n\n");
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = "paris-stays-host-messages.txt"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    logUsage("host_message", undefined, { source: "export", count: messages.length });
+  };
   const share = async () => {
     const ids = tab === "shared" ? shared : [...saved];
     if (!ids.length) {
@@ -2101,13 +2164,17 @@ function App() {
           <div className="info-body">
             <p>
               Saved homes, hidden reasons and recent activity stay in this
-              browser. No account or shared database is required.
+              browser. Anonymous usage events are also sent to the owner's laptop when available; written notes and search text are never sent.
+            </p>
+            <p className="collector-status"><span className={connection === "online" ? "connected-dot" : ""} />
+              {connection === "online" ? "Laptop collector connected" : connection === "paused" ? "Usage logging paused" : connection === "connecting" ? "Checking optional laptop connection…" : "Laptop offline · static site works normally"}
             </p>
             <div className="personal-tools">
               <button onClick={exportNotes}>
                 <Download size={16} />
                 Export notes
               </button>
+              <button onClick={exportHostMessages}><MessageSquare size={16} />Download host messages</button>
               <button onClick={() => importer.current?.click()}>
                 <Upload size={16} />
                 Import notes
@@ -2145,8 +2212,7 @@ function App() {
               <span>
                 <b>Record activity</b>
                 <small>
-                  Opens, photos, filters, map moves and notes; retained for 90
-                  days.
+                  Visits, clicks, photos, filters, map moves and active viewing time. Logs are retained for 90 days. Device/network hints are collected; Wi-Fi names, passwords and written notes are unavailable or excluded.
                 </small>
               </span>
               <input
@@ -2164,6 +2230,7 @@ function App() {
               className="text-button"
               onClick={() => {
                 setWorkspace((w) => ({ ...w, activity: [] }));
+                void usage?.clear();
                 setToast("Activity cleared. Saved notes remain.");
               }}
             >
@@ -2195,6 +2262,7 @@ function App() {
           </div>
         </Modal>
       )}
+      {storageReady && <UsageNotice state={connection} enabled={workspace.activityEnabled} onPause={() => setWorkspace(w => ({ ...w, activityEnabled: false }))} />}
       {toast && (
         <div className="toast" role="status">
           {toast}

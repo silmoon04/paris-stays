@@ -2388,3 +2388,37 @@ h1 {
     transition: none;
   }
 }
+.description { max-width: 78ch; }
+.description p { line-height: 1.75; margin: 0 0 16px; }
+.description h4 { font-size: 16px; margin: 24px 0 10px; }
+.description ul { margin: 0 0 18px; padding-left: 22px; }
+.description li { margin: 7px 0; line-height: 1.7; }
+.host-message > p { color: var(--muted); line-height: 1.6; }
+.host-message textarea { width: 100%; min-height: 130px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: 16px; color: var(--ink); font: inherit; line-height: 1.7; background: #fafafa; }
+.host-message-actions { display: flex; align-items: center; gap: 18px; margin-top: 12px; }
+.host-message-actions button { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 10px 14px; }
+.host-message-actions a { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
+.collector-status { display: flex; align-items: center; gap: 7px; color: #666; }
+.connected-dot { height: 7px; width: 7px; flex-shrink: 0; border-radius: 50%; background: #237a58; }
+.usage-notice { position: fixed; bottom: 16px; left: 16px; z-index: 600; display: flex; align-items: flex-start; gap: 10px; max-width: 440px; padding: 14px; background: white; border: 1px solid #ddd; border-radius: 12px; color: #555; font-size: 12px; }
+.usage-notice > svg { margin-top: 2px; flex-shrink: 0; }
+.usage-notice p { margin: 0 0 5px; line-height: 1.55; }
+.usage-notice button { min-height: 36px; }
+.usage-notice .icon-button { flex-shrink: 0; }
+.large-photo { touch-action: pan-y; }
+@media (max-width: 760px) {
+  .usage-notice { bottom: max(10px, env(safe-area-inset-bottom)); left: 10px; right: 10px; max-width: none; padding: 12px; }
+  .modal-heading .icon-button, .gallery-prev, .gallery-next { width: 44px; height: 44px; }
+  .modal.wide { width: 100%; max-height: 100dvh; height: 100dvh; margin: 0; border-radius: 0; }
+  .large-photo { height: auto; aspect-ratio: 4/3; }
+  .photo-categories { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
+  .photo-categories button { min-height: 44px; flex-shrink: 0; }
+  .thumbnails { scroll-snap-type: x proximity; }
+  .thumbnails button { min-width: 74px; min-height: 58px; scroll-snap-align: start; }
+  .description, .description li, .host-message > p { font-size: 15px; }
+  .host-message textarea { min-height: 210px; font-size: 16px; padding: 12px; }
+  .host-message-actions { flex-wrap: wrap; gap: 10px; }
+  .detail-section { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
+  .field-filter { align-items: stretch; flex-direction: column; }
+  .field-filter select { max-width: 100%; width: 100%; min-height: 44px; font-size: 14px; }
+}

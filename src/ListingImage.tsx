@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { ImageOff } from "lucide-react";
 import { imageCandidates, type ImageWidth } from "./images";
 import { whenNearViewport } from "./loading";
+import { logUsage } from "./telemetry";
 
 export function ListingImage({
   url,
+  localUrl,
   alt,
   width,
   thumbnail = false,
@@ -12,6 +14,7 @@ export function ListingImage({
   sizes,
 }: {
   url?: string;
+  localUrl?: string;
   alt: string;
   width: ImageWidth;
   thumbnail?: boolean;
@@ -22,6 +25,7 @@ export function ListingImage({
     <ImageAttempt
       key={(url ?? "") + width}
       url={url}
+      localUrl={localUrl}
       alt={alt}
       width={width}
       thumbnail={thumbnail}
@@ -32,6 +36,7 @@ export function ListingImage({
 }
 function ImageAttempt({
   url,
+  localUrl,
   alt,
   width,
   thumbnail,
@@ -39,13 +44,15 @@ function ImageAttempt({
   sizes,
 }: {
   url?: string;
+  localUrl?: string;
   alt: string;
   width: ImageWidth;
   thumbnail: boolean;
   eager: boolean;
   sizes?: string;
 }) {
-  const candidates = imageCandidates(url ?? "", width);
+  const candidates = imageCandidates(url ?? "", width, localUrl);
+  const started = useRef(performance.now());
   const container = useRef<HTMLSpanElement>(null);
   const [active, setActive] = useState(eager);
   const [attempt, setAttempt] = useState(0),
@@ -81,10 +88,16 @@ function ImageAttempt({
           fetchPriority={eager ? "high" : "auto"}
           decoding="async"
           className={loaded ? "loaded" : ""}
-          onLoad={() => setLoaded(true)}
+          onLoad={() => {
+            setLoaded(true);
+            logUsage("image_load", container.current?.closest<HTMLElement>("[data-listing-id]")?.dataset.listingId,
+              { width, loadedMs: Math.round(performance.now() - started.current), category: thumbnail ? "thumbnail" : "photo", source: attempt ? "fallback" : localUrl ? "static-cache" : "cdn" });
+          }}
           onError={() => {
             setLoaded(false);
             setAttempt((n) => n + 1);
+            logUsage("image_error", container.current?.closest<HTMLElement>("[data-listing-id]")?.dataset.listingId,
+              { width, index: attempt, category: thumbnail ? "thumbnail" : "photo", source: attempt ? "fallback" : localUrl ? "static-cache" : "cdn" });
           }}
         />
       ) : !source ? (

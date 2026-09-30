@@ -16,8 +16,15 @@ const allowed = [
   "README.md",
   "DESIGN.md",
   "ASSETS.md",
+  "COLLECTOR.md",
   ".github/workflows/pages.yml",
   "public/favicon.svg",
+  "public/runtime.json",
+  "public/photo-index.json",
+  "scripts/collector-dashboard.html",
+  "scripts/start-background.ps1",
+  "scripts/stop-background.ps1",
+  "scripts/run-background.ps1",
   "src/assets/outfit-latin-variable.woff2",
   "src/assets/Outfit-OFL.txt",
   "src/assets/paris-stays-mark.png",
@@ -62,6 +69,7 @@ async function copyData(folder) {
   }
 }
 await copyData("data");
+await copyData("photos");
 console.log(
   `Staged ${allowed.length} explicitly allowed source/data files in ${destination}. Raw responses, analysis images, credentials and personal records are excluded.`,
 );

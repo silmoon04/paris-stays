@@ -461,6 +461,7 @@ export default function StayMap(props: Props) {
           >
             <ListingImage
               url={photo?.url}
+              localUrl={photo?.localUrl}
               alt={photo?.caption || stay.title}
               width={480}
               sizes="286px"

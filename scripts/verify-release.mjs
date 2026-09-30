@@ -11,6 +11,8 @@ assert.deepEqual((await readdir(out)).sort(), [
   "data",
   "favicon.svg",
   "index.html",
+  "photos",
+  "runtime.json",
 ]);
 assert.deepEqual((await readdir(path.join(out, "data"))).sort(), [
   "details",
@@ -45,6 +47,10 @@ for (const s of snapshot.stays) {
   assert.match(s.id, /^\d{1,25}$/);
   assert.equal(new URL(s.url).hostname, "www.airbnb.com");
   for (const p of [...s.photos, ...detail.photos]) {
+    if (p.localUrl) {
+      assert.match(p.localUrl, /^\/paris-stays\/photos\/[a-f0-9]{24}\.(?:jpg|webp|png)$/);
+      await lstat(path.join(out, p.localUrl.slice("/paris-stays/".length)));
+    }
     const url = new URL(p.url);
     assert.equal(url.protocol, "https:");
     assert.equal(url.hostname, "a0.muscache.com");
@@ -63,6 +69,10 @@ for (const s of snapshot.stays) {
     assert.ok(s.quote.fees.some((f) => /tax/i.test(f.label)));
   }
 }
+const runtime = JSON.parse(await readFile(path.join(out, "runtime.json"), "utf8"));
+assert.equal(runtime.version, 1);
+assert.ok(runtime.collectorUrl === null || /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(runtime.collectorUrl), "Invalid public collector URL");
+assert.deepEqual(Object.keys(runtime).sort(), ["collectorUrl", "updatedAt", "version"]);
 const html = await readFile(path.join(out, "index.html"), "utf8");
 assert.ok(html.includes("/paris-stays/assets/"));
 assert.ok(html.includes("showStartupRecovery") && /addEventListener\(['"]error['"]/.test(html), "Startup recovery must survive the static build");

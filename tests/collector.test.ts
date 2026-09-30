@@ -1,0 +1,54 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+// @ts-expect-error The local service uses Node's native SQLite API in plain JavaScript.
+import { createCollector, cleanDevice, cleanEvent } from "../scripts/collector.mjs";
+
+test("collector accepts allowed events once, rejects other origins and protects the dashboard", async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), "paris-stays-collector-tests-"));
+  const snapshotPath = path.join(directory, "snapshot.json");
+  await writeFile(snapshotPath, JSON.stringify({ meta: { uniqueListings: 2 }, stays: [] }));
+  const server = createCollector({ directory, snapshotPath, origins: ["https://silmoon04.github.io"] });
+  await new Promise<void>(r => server.api.listen(0, "127.0.0.1", r));
+  await new Promise<void>(r => server.admin.listen(0, "127.0.0.1", r));
+  t.after(async () => { await server.close(); assert.ok(directory.startsWith(path.join(tmpdir(), "paris-stays-collector-tests-"))); await rm(directory, { recursive: true }); });
+  const api = "http://127.0.0.1:" + server.api.address().port, admin = "http://127.0.0.1:" + server.admin.address().port;
+  const origin = "https://silmoon04.github.io", visitorId = randomUUID(), sessionId = randomUUID();
+  const post = (route: string, body: unknown, source = origin) => fetch(api + route, { method: "POST", headers: { Origin: source, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const registration = await post("/v1/session", { visitorId, sessionId, device: { platform: "iPhone", viewportWidth: 390, ssid: "private wifi", password: "private" } });
+  assert.equal(registration.status, 200); assert.equal(registration.headers.get("Access-Control-Allow-Origin"), origin);
+  const { token } = await registration.json();
+  const id = randomUUID(), event = { id, type: "filter", at: Date.now(), listingId: "123", data: { count: 2, previousCount: 14, removedIds: ["456"], filters: { query: "private search", rules: { toilets: { min: 3 } } }, whyNot: "private note", ssid: "wifi", password: "private" } };
+  const body = { visitorId, sessionId, token, events: [event] };
+  assert.equal((await post("/v1/events", body)).status, 200);
+  assert.equal((await post("/v1/events", body)).status, 200);
+  assert.equal(server.db.prepare("SELECT count(*) n FROM events").get().n, 1);
+  const logged = JSON.parse(server.db.prepare("SELECT data FROM events").get().data);
+  assert.equal(logged.filters.queryLength, 14); assert.equal(logged.count, 2);
+  assert.deepEqual(logged.removedIds, ["456"]);
+  for (const forbidden of ["private search", "private note", "wifi", "password"]) assert.ok(!JSON.stringify(logged).includes(forbidden));
+  const device = JSON.parse(server.db.prepare("SELECT device FROM sessions").get().device);
+  assert.equal(device.platform, "iPhone"); assert.ok(!JSON.stringify(device).includes("private"));
+  assert.equal((await post("/v1/events", { ...body, token: "0".repeat(64) })).status, 401);
+  assert.equal((await post("/v1/events", body, "https://unrelated.example")).status, 403);
+  assert.equal((await fetch(api + "/api/summary")).status, 404);
+  assert.equal((await fetch(admin + "/api/summary", { headers: { Origin: "https://silmoon04.github.io" } })).status, 403);
+  assert.equal((await fetch(admin + "/api/summary")).status, 200);
+  assert.equal((await fetch(api + "/v1/snapshot")).status, 200);
+  const preflight = await fetch(api + "/v1/events", { method: "OPTIONS", headers: { Origin: origin } });
+  assert.equal(preflight.status, 204);
+  assert.equal((await post("/v1/clear", { visitorId, sessionId, token })).status, 200);
+  assert.equal(server.db.prepare("SELECT count(*) n FROM events").get().n, 0);
+  assert.equal(server.db.prepare("SELECT count(*) n FROM sessions").get().n, 0);
+});
+test("event/device validation rejects arbitrary data and impossible timestamps", () => {
+  const now = Date.now(), valid = { id: randomUUID(), type: "open", at: now, listingId: "123", data: {} };
+  assert.ok(cleanEvent(valid, now));
+  assert.equal(cleanEvent({ ...valid, type: "keystrokes" }, now), null);
+  assert.equal(cleanEvent({ ...valid, at: now + 120000 }, now), null);
+  assert.equal(cleanEvent({ ...valid, listingId: "../secret" }, now), null);
+  assert.deepEqual(cleanDevice({ ssid: "private", password: "secret", screenWidth: 390 }), { screenWidth: 390 });
+});

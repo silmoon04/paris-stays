@@ -68,7 +68,7 @@ export type Quote = {
   currency: string;
   fees: { label: string; amount: number }[];
 };
-export type Photo = { url: string; caption: string };
+export type Photo = { url: string; caption: string; localUrl?: string };
 export type Enrichment = {
   model: "gpt-6-luna";
   inputHash: string;
