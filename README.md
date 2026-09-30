@@ -51,6 +51,8 @@ Collection requires private raw responses and the ledger in `.private`; the publ
 
 `npm run build` uses an explicit artifact allowlist: client bundles, favicon, curated `search.json`, matching listing details and `.nojekyll`. It checks price context, IDs, photo domains, forbidden personal fields, credentials, base paths and compressed data size.
 
-`node scripts/stage-release.mjs` stages only source files, tests, workflow configuration and those verified public data files into `.private/pages-release`. It does not copy private raw responses, review text files, analysis images, credentials or browser records. The GitHub Pages workflow tests and verifies the static artifact before deployment.
+`node scripts/stage-release.mjs` stages only source files, tests, workflow configuration and those verified public data files into `.private/pages-release`. It does not copy private raw responses, review text files, analysis images, credentials or browser records. The active Pages publishing source is the prebuilt `gh-pages` branch. GitHub's standard Pages deployment succeeded; the custom Actions build was refused because of an account billing lock. The custom workflow is available for manual use after that lock is cleared, and does not run automatically on source updates.
+
+For a release, run the local tests and build, stage the source with `node scripts/stage-release.mjs`, and commit/push that source checkout. Copy only the verified `dist` allowlist into the separate static checkout at `.private/pages-static`, then commit/push its `gh-pages` branch. GitHub rebuilds the Pages site from that branch. Keep the static checkout's `.git` directory intact; it is not part of the uploaded site.
 
 Listing information and photos belong to the hosts and Airbnb. This is an independent search tool; it is not affiliated with Airbnb.
