@@ -14,6 +14,26 @@
     <link rel="preload" href="/paris-stays/assets/outfit-latin-variable-Bc-8i84L.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preconnect" href="https://a0.muscache.com" />
     <style>.startup{color:#222;text-align:center;flex-direction:column;justify-content:center;align-items:center;gap:14px;min-height:100dvh;padding:24px;font-family:Outfit,Arial,sans-serif;display:flex}.startup img{width:48px;height:48px}.startup strong{font-size:25px}.startup-status{color:#717171;font-size:15px}.startup-retry{cursor:pointer;font:inherit;background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px 20px}</style>
+    <script>
+      function showStartupRecovery(failed) {
+        var message = document.querySelector('.startup-status');
+        var retry = document.querySelector('.startup-retry');
+        if (!message || !retry) return;
+        message.textContent = failed
+          ? 'The app could not load. Check your connection and try again.'
+          : 'Loading is taking longer than usual. You can wait or try again.';
+        retry.hidden = false;
+      }
+      window.addEventListener('error', function (event) {
+        if (!event.target || event.target.tagName !== 'SCRIPT') return;
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', function () { showStartupRecovery(true); }, { once: true });
+        } else showStartupRecovery(true);
+      }, true);
+      document.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () { showStartupRecovery(false); }, 12000);
+      }, { once: true });
+    </script>
     <script type="module" crossorigin src="/paris-stays/assets/index-DX7k5pYV.js"></script>
     <link rel="modulepreload" crossorigin href="/paris-stays/assets/rolldown-runtime-CbXtAM7H.js">
     <link rel="stylesheet" crossorigin href="/paris-stays/assets/index-DK-cQ14n.css">
