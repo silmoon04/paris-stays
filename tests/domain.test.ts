@@ -12,7 +12,7 @@ import {
   type Stay,
   type Fact,
 } from "../src/domain";
-import { DEFAULT_FILTERS, facet, matches } from "../src/filters";
+import { DEFAULT_FILTERS, facet, matches, filterChecks } from "../src/filters";
 const f = (value: Fact["value"], extra: Partial<Fact> = {}): Fact => ({
   value,
   source: "listing",
@@ -32,7 +32,7 @@ function home(extra: Partial<Stay> = {}): Stay {
     capacity: 5,
     entireHome: true,
     advertisedBeds: 4,
-    bedrooms: 2,
+    bedrooms: 3,
     bathrooms: 2,
     rating: 4.8,
     reviewCount: 30,
@@ -51,6 +51,7 @@ function home(extra: Partial<Stay> = {}): Stay {
     },
     facts: {
       properBeds: f(4),
+      bedrooms: f(3),
       toilets: f(3),
       showers: f(1),
       accessSuitable: f(true),
@@ -62,15 +63,46 @@ function home(extra: Partial<Stay> = {}): Stay {
     ...extra,
   };
 }
-test("four proper beds can be in two bedrooms", () =>
-  assert.equal(confirmed(home()), true));
-test("three proper beds qualify under the updated minimum", () => {
+test("four beds in two bedrooms are distinct from the default bedroom requirement", () => {
+  const s = home({ bedrooms: 2 });
+  s.facts.bedrooms = f(2);
+  assert.equal(confirmed(s), true);
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+});
+test("three proper beds require deliberately relaxing the new default", () => {
   const s = home();
   s.facts.properBeds = f(3);
-  assert.equal(matches(s, DEFAULT_FILTERS), true);
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+  assert.equal(matches(s, { ...DEFAULT_FILTERS, rules: { ...DEFAULT_FILTERS.rules, properBeds: { min: 3 } } }), true);
   s.facts.properBeds = f(2);
   assert.ok(contradictions(s).includes("Fewer than 3 proper beds"));
   assert.equal(matches(s, DEFAULT_FILTERS), false);
+});
+test("default search excludes fewer than three WCs or three bedrooms or four proper beds", () => {
+  assert.equal(matches(home(), DEFAULT_FILTERS), true);
+  for (const [key, count] of [["toilets", 2], ["bedrooms", 2], ["properBeds", 3]] as const) {
+    const s = home();
+    s.facts[key] = f(count);
+    assert.equal(matches(s, DEFAULT_FILTERS), false, key);
+  }
+});
+test("metadata establishes that fewer than four total beds or three bedrooms cannot fit", () => {
+  const s = home({ advertisedBeds: 3, bedrooms: 2 });
+  delete s.facts.properBeds;
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+  s.advertisedBeds = 4;
+  delete s.facts.bedrooms;
+  assert.equal(matches(s, DEFAULT_FILTERS), false);
+});
+test("partial photo counts remain unknown against the stricter defaults and need confirmation", () => {
+  const s = home();
+  s.facts.properBeds = f(3, { extent: "at-least", source: "photos" });
+  s.facts.toilets = f(2, { extent: "at-least", source: "photos" });
+  assert.equal(matches(s, DEFAULT_FILTERS), true);
+  assert.ok(filterChecks(s, DEFAULT_FILTERS).includes("Proper beds"));
+  assert.ok(filterChecks(s, DEFAULT_FILTERS).includes("Toilet count"));
+  assert.equal(matches(s, { ...DEFAULT_FILTERS, includeUnknown: false }), false);
+  assert.equal(matches(s, { ...DEFAULT_FILTERS, onlyConfirmed: true }), false);
 });
 test("advertised total below three establishes an upper limit", () =>
   assert.ok(
@@ -113,11 +145,12 @@ test("toilets are independent of bathroom count", () => {
   delete s.facts.toilets;
   assert.ok(checks(s).includes("Toilet count"));
 });
-test("two toilets qualify but score below three", () => {
+test("two toilets need a relaxed filter and still rank below three", () => {
   const a = home(),
     b = home();
   b.facts.toilets = f(2);
-  assert.equal(matches(b, DEFAULT_FILTERS), true);
+  assert.equal(matches(b, DEFAULT_FILTERS), false);
+  assert.equal(matches(b, { ...DEFAULT_FILTERS, rules: { ...DEFAULT_FILTERS.rules, toilets: { min: 2 } } }), true);
   assert.ok(ranking(a).score > ranking(b).score);
 });
 test("one pictured WC does not prove fewer than two exist", () => {

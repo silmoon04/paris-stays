@@ -29,9 +29,12 @@ assert.deepEqual(
   [...ids].map((id) => id + ".json").sort(),
 );
 for (const s of snapshot.stays) {
+  const detail = JSON.parse(await readFile(path.join(out, "data/details", s.id + ".json"), "utf8"));
+  assert.ok(s.photos.length <= 1, "Only the cover belongs in the search download");
+  assert.equal(s.photoCount, detail.photos.length, "Gallery count does not match");
   assert.match(s.id, /^\d{1,25}$/);
   assert.equal(new URL(s.url).hostname, "www.airbnb.com");
-  for (const p of s.photos) {
+  for (const p of [...s.photos, ...detail.photos]) {
     const url = new URL(p.url);
     assert.equal(url.protocol, "https:");
     assert.equal(url.hostname, "a0.muscache.com");
@@ -52,6 +55,7 @@ for (const s of snapshot.stays) {
 }
 const html = await readFile(path.join(out, "index.html"), "utf8");
 assert.ok(html.includes("/paris-stays/assets/"));
+assert.ok(html.includes('rel="preload"') && html.includes('.woff2'), "Font must be served and preloaded from this site");
 for (const m of html.matchAll(/(?:href|src)="(\/[^"\s]+)"/g)) {
   assert.ok(m[1].startsWith("/paris-stays/"));
   await lstat(path.join(out, m[1].slice("/paris-stays/".length)));
@@ -81,8 +85,8 @@ async function scan(folder) {
 }
 await scan(out);
 assert.ok(
-  gzipSync(searchBytes).length < 1_500_000,
-  "Search snapshot exceeds 1.5 MB compressed target",
+  gzipSync(searchBytes).length < 300_000,
+  "Search snapshot exceeds 300 KB compressed target",
 );
 console.log(
   `Verified release: ${ids.size} listings, ${(gzipSync(searchBytes).length / 1024).toFixed(0)} KB compressed search data, $${snapshot.meta.chargedUsd.toFixed(4)} collection cost.`,

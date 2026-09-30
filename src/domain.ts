@@ -109,6 +109,7 @@ export type Stay = {
   rating: number | null;
   reviewCount: number | null;
   photos: Photo[];
+  photoCount?: number;
   quote: Quote;
   facts: Record<string, Fact>;
   summary: string;
@@ -129,6 +130,7 @@ export type Snapshot = {
   stays: Stay[];
 };
 export type Detail = {
+  photos?: Photo[];
   reviewSnippets?: {
     id: string;
     text: string;

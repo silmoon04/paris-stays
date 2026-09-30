@@ -9,10 +9,28 @@
       content="A family shortlist for four nights in Paris. Compare real beds, toilets, access, kitchens and total prices."
     />
     <title>Paris Stays · 31 Oct–4 Nov</title>
-    <link rel="icon" href="/paris-stays/favicon.svg" />
+    <link rel="icon" type="image/png" href="/src/assets/paris-stays-mark.png" />
+    <link rel="apple-touch-icon" href="/src/assets/paris-stays-mark.png" />
+    <link rel="preload" href="/src/assets/outfit-latin-variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preconnect" href="https://a0.muscache.com" />
+    <style>
+      .startup { min-height:100dvh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px; color:#222; font-family:Outfit,Arial,sans-serif; text-align:center; }
+      .startup img { width:48px; height:48px; }
+      .startup strong { font-size:25px; }
+      .startup-status { font-size:15px; color:#717171; }
+      .startup-retry { padding:12px 20px; background:#fff; border:1px solid #ddd; border-radius:10px; cursor:pointer; font:inherit; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="root">
+      <div class="startup" role="status">
+        <img src="/src/assets/paris-stays-mark.png" alt="" width="48" height="48" />
+        <strong>paris stays</strong>
+        <p class="startup-status">Loading homes for your Paris trip…</p>
+        <button class="startup-retry" hidden onclick="location.reload()">Try again</button>
+      </div>
+    </div>
+    <noscript>This search app needs JavaScript enabled to show the map and filters.</noscript>
+    <script type="module" src="/src/main.tsx" onerror="document.querySelector('.startup-status').textContent='The app could not load. Check your connection and try again.';document.querySelector('.startup-retry').hidden=false;"></script>
   </body>
 </html>

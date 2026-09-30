@@ -1,5 +1,12 @@
+@font-face {
+  font-family: "Outfit";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./assets/outfit-latin-variable.woff2") format("woff2");
+}
 :root {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Outfit", Arial, sans-serif;
   color: #222;
   background: #fff;
   font-synthesis: none;
@@ -108,16 +115,20 @@ button.pressed,
   color: var(--rose);
   font-weight: 750;
   font-size: 23px;
-  letter-spacing: -1px;
+  letter-spacing: -0.025em;
 }
 .brand-symbol {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid var(--rose);
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
+  width: 38px;
+  height: 38px;
+}
+.brand-symbol img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .trip-pill {
   display: flex;
@@ -1504,11 +1515,40 @@ h1 {
 .empty-state button {
   font-size: 12px;
 }
-.skeleton-list > div {
-  height: 245px;
-  background: linear-gradient(100deg, #f4f4f4, #fafafa, #f4f4f4);
-  margin: 20px 0;
-  border-radius: 12px;
+.skeleton-card {
+  display: flex;
+  gap: 22px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+  min-height: 244px;
+}
+.skeleton-photo {
+  flex: 0 0 34%;
+  border-radius: 14px;
+  background: #efefef;
+}
+.skeleton-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding: 6px 0;
+}
+.skeleton-line {
+  display: block;
+  height: 13px;
+  background: #efefef;
+  border-radius: 5px;
+}
+.skeleton-line.short { width: 55%; }
+.skeleton-line.title { height: 22px; }
+.skeleton-line.bottom { margin-top: auto; }
+.skeleton-content, .skeleton-photo {
+  animation: loading-breathe 1.6s ease-in-out infinite alternate;
+}
+@keyframes loading-breathe {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
 }
 .toast {
   position: fixed;
@@ -2087,6 +2127,40 @@ h1 {
 }
 .listing-image img.loaded {
   opacity: 1;
+}
+.image-placeholder {
+  position: absolute;
+  inset: 0;
+  background: #ededed;
+  animation: loading-breathe 1.6s ease-in-out infinite alternate;
+}
+.load-message {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.loading-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--rose);
+  animation: loading-breathe 1s ease-in-out infinite alternate;
+}
+.map-loading small { max-width: 30ch; text-align: center; line-height: 1.5; }
+.price strong, .walk-times strong { font-variant-numeric: tabular-nums; }
+@media (max-width: 780px) {
+  .skeleton-card { min-height: 220px; gap: 16px; }
+  .skeleton-content { gap: 12px; }
+  input[type="search"], input[type="text"], textarea { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-content, .skeleton-photo, .image-placeholder, .loading-dot { animation: none; }
 }
 .thumbnail-image .photo-fallback {
   min-height: 0;

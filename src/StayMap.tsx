@@ -255,6 +255,7 @@ export default function StayMap(props: Props) {
           }
         });
         button.addEventListener("mouseenter", () => {
+          if (window.matchMedia("(max-width: 780px)").matches) return;
           clearTimeout(timers.current.show);
           clearTimeout(timers.current.hide);
           timers.current.show = setTimeout(() => {
@@ -267,6 +268,7 @@ export default function StayMap(props: Props) {
         });
         button.addEventListener("mouseleave", hide);
         button.addEventListener("focus", () => {
+          if (window.matchMedia("(max-width: 780px)").matches) return;
           const p = pins.get(key);
           if (!p) return;
           clearTimeout(timers.current.hide);
@@ -461,6 +463,7 @@ export default function StayMap(props: Props) {
               url={photo?.url}
               alt={photo?.caption || stay.title}
               width={480}
+              sizes="286px"
               eager
             />
           </button>

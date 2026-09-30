@@ -34,7 +34,6 @@ import {
   Heart,
   House,
   Info,
-  MapPin,
   MessageSquare,
   Minus,
   Plus,
@@ -48,7 +47,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  checks,
   confirmed,
   contradictions,
   coverIndex,
@@ -72,6 +70,7 @@ import {
 import {
   DEFAULT_FILTERS,
   facet,
+  filterChecks,
   matches,
   recovery,
   type Filters,
@@ -93,6 +92,9 @@ import "./styles.css";
 import { ListingImage } from "./ListingImage";
 import { FactIcon } from "./FactIcon";
 import { WalkTimes } from "./WalkTimes";
+import { loadStaticJson } from "./loading";
+import logo from "./assets/paris-stays-mark.png";
+import { MapBoundary, MapLoading } from "./MapBoundary";
 const StayMap = lazy(() => import("./StayMap"));
 const date = (s: string) =>
   !Number.isFinite(Date.parse(s))
@@ -158,10 +160,12 @@ function Photo({
   stay,
   className,
   onClick,
+  eager = false,
 }: {
   stay: Stay;
   className: string;
   onClick: () => void;
+  eager?: boolean;
 }) {
   const index = coverIndex(stay),
     url = stay.photos[index]?.url;
@@ -175,12 +179,14 @@ function Photo({
         url={url}
         alt={stay.photos[index]?.caption || stay.title}
         width={720}
+        sizes="(max-width: 600px) 34vw, (max-width: 1100px) 180px, 230px"
+        eager={eager}
       />
       <span className="photo-count">
         <Images size={11} aria-hidden="true" />
         {stay.enrichment?.photoReview?.interiorPhotos === false
           ? "Exterior photos only"
-          : `${stay.photos.length} photos`}
+          : `${stay.photoCount ?? stay.photos.length} photos`}
       </span>
       {stay.enrichment?.deepReview && (
         <span className="photo-checked">
@@ -217,6 +223,8 @@ function StayCard({
   onHide,
   onCompare,
   onHover,
+  eager,
+  filters,
 }: {
   stay: Stay;
   record?: RecordItem;
@@ -226,13 +234,18 @@ function StayCard({
   onHide: () => void;
   onCompare: () => void;
   onHover: (id: string | null) => void;
+  eager?: boolean;
+  filters: Filters;
 }) {
-  const unknown = checks(stay),
+  const unknown = filterChecks(stay, filters),
     bad = contradictions(stay),
     wc = value(stay, "toilets"),
     beds = value(stay, "properBeds"),
+    bedsMin = filters.rules.properBeds?.min ?? MIN_PROPER_BEDS,
+    wcMin = filters.rules.toilets?.min ?? 2,
     walk = walkingMinutes(stay),
     access = accessSummary(stay);
+  const isConfirmed = confirmed(stay) && !unknown.length;
   return (
     <article
       className="stay-card"
@@ -245,7 +258,7 @@ function StayCard({
       }}
     >
       <div className="card-image">
-        <Photo stay={stay} className="card-photo" onClick={onOpen} />
+        <Photo stay={stay} className="card-photo" onClick={onOpen} eager={eager} />
         <button
           className={"save-heart " + (record?.saved ? "saved" : "")}
           aria-label={
@@ -277,7 +290,7 @@ function StayCard({
             {typeof beds === "number" &&
             !(
               fact(stay, "properBeds")?.extent === "at-least" &&
-              beds < MIN_PROPER_BEDS
+              beds < bedsMin
             )
               ? `${factDisplay(stay, "properBeds")} proper beds`
               : "Proper beds to check"}
@@ -294,9 +307,9 @@ function StayCard({
           <span>
             <Toilet size={15} />
             {typeof wc === "number" &&
-            !(fact(stay, "toilets")?.extent === "at-least" && wc < 2)
+            !(fact(stay, "toilets")?.extent === "at-least" && wc < wcMin)
               ? `${factDisplay(stay, "toilets")} WCs`
-              : "2+ WCs to check"}
+              : `${wcMin}+ WCs to check`}
           </span>
           <span>
             <DoorOpen size={15} aria-hidden="true" />
@@ -325,11 +338,11 @@ function StayCard({
         <div
           className={
             "fit-label " +
-            (confirmed(stay) ? "confirmed" : bad.length ? "mismatch" : "")
+            (isConfirmed ? "confirmed" : bad.length ? "mismatch" : "")
           }
         >
           <i />
-          {confirmed(stay)
+          {isConfirmed
             ? "Confirmed match"
             : bad.length
               ? "Known mismatch"
@@ -453,6 +466,7 @@ function StayDetails({
   onHide,
   onActivity,
   record,
+  filters,
 }: {
   stay: Stay;
   onClose: () => void;
@@ -464,33 +478,37 @@ function StayDetails({
     d?: Record<string, unknown>,
   ) => void;
   record?: RecordItem;
+  filters: Filters;
 }) {
   const [index, setIndex] = useState(coverIndex(stay)),
     [detail, setDetail] = useState<Detail>(),
-    [detailError, setDetailError] = useState(false);
+    [detailError, setDetailError] = useState(false),
+    [detailAttempt, setDetailAttempt] = useState(0);
   useEffect(() => {
     const control = new AbortController();
-    fetch(import.meta.env.BASE_URL + "data/details/" + stay.id + ".json", {
-      signal: control.signal,
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error();
-        return r.json();
+    setDetailError(false);
+    loadStaticJson<Detail>(
+      import.meta.env.BASE_URL + "data/details/" + stay.id + ".json",
+      control.signal,
+    )
+      .then((data) => {
+        setDetail(data);
+        if (data.photos) setIndex(coverIndex({ ...stay, photos: data.photos }));
       })
-      .then(setDetail)
       .catch((e) => {
         if (e.name !== "AbortError") setDetailError(true);
       });
     return () => control.abort();
-  }, [stay.id]);
-  const photo = stay.photos[index],
+  }, [stay.id, detailAttempt]);
+  const photos = detail?.photos ?? stay.photos,
+    photo = photos[index] ?? photos[0],
     review = stay.enrichment?.photoReview;
   const change = (i: number) => {
     setIndex(i);
     onActivity("photo", stay.id, { index: i });
   };
   const bad = contradictions(stay),
-    todo = checks(stay),
+    todo = filterChecks(stay, filters),
     access = accessSummary(stay),
     reviewSummary = stay.enrichment?.reviewSummary;
   return (
@@ -502,33 +520,34 @@ function StayDetails({
               url={photo?.url}
               alt={photo?.caption || stay.title}
               width={1440}
+              sizes="(max-width: 780px) calc(100vw - 32px), (max-width: 1200px) 65vw, 760px"
               eager
             />
             <button
               className="gallery-prev"
               aria-label="Previous photo"
               onClick={() =>
-                change((index - 1 + stay.photos.length) % stay.photos.length)
+                change((index - 1 + photos.length) % photos.length)
               }
-              disabled={!stay.photos.length}
+              disabled={photos.length < 2}
             >
               <ArrowLeft size={18} />
             </button>
             <button
               className="gallery-next"
               aria-label="Next photo"
-              onClick={() => change((index + 1) % stay.photos.length)}
-              disabled={!stay.photos.length}
+              onClick={() => change((index + 1) % photos.length)}
+              disabled={photos.length < 2}
             >
               <ArrowRight size={18} />
             </button>
             <span className="photo-count">
-              {index + 1} / {stay.photos.length}
+              {index + 1} / {stay.photoCount ?? photos.length}
             </span>
           </div>
           <p className="caption">{photo?.caption || "Listing photograph"}</p>
           <div className="photo-categories">
-            <button onClick={() => change(coverIndex(stay))}>
+            <button onClick={() => change(coverIndex({ ...stay, photos }))}>
               <Images size={14} aria-hidden="true" />
               Best view
             </button>
@@ -546,13 +565,13 @@ function StayDetails({
             ).map(([label, indices, pattern]) => {
               const i =
                 indices?.[0] ??
-                stay.photos.findIndex((p) =>
+                photos.findIndex((p) =>
                   new RegExp(pattern, "i").test(p.caption),
                 );
               return (
                 <button
                   key={label}
-                  disabled={i < 0 || i === undefined}
+                  disabled={i < 0 || i === undefined || i >= photos.length}
                   onClick={() => change(i!)}
                 >
                   <FactIcon
@@ -573,7 +592,7 @@ function StayDetails({
             })}
           </div>
           <div className="thumbnails">
-            {stay.photos.map((p, i) => (
+            {photos.map((p, i) => (
               <button
                 key={i}
                 className={index === i ? "selected" : ""}
@@ -584,6 +603,17 @@ function StayDetails({
               </button>
             ))}
           </div>
+          {!detail && (
+            <div className="load-message" role="status">
+              {detailError ? (
+                <><Info size={16} /> More photos and details could not load.
+                  <button onClick={() => setDetailAttempt((n) => n + 1)}>Try again</button>
+                </>
+              ) : (
+                <><span className="loading-dot" aria-hidden="true" /> Loading the gallery and listing details…</>
+              )}
+            </div>
+          )}
           {stay.enrichment?.deepReview && (
             <p className="deep-note">
               <Check size={16} />
@@ -1151,6 +1181,7 @@ function FiltersPanel({
 function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>(),
     [loadError, setLoadError] = useState(false),
+    [loadAttempt, setLoadAttempt] = useState(0),
     [filters, setFilters] = useState<Filters>(structuredClone(DEFAULT_FILTERS)),
     [previous, setPrevious] = useState<Filters>(),
     [filterOpen, setFilterOpen] = useState(false),
@@ -1184,15 +1215,15 @@ function App() {
   const stays = snapshot?.stays ?? [];
   useEffect(() => {
     const ac = new AbortController();
-    fetch(import.meta.env.BASE_URL + "data/search.json", { signal: ac.signal })
-      .then((r) => {
-        if (!r.ok) throw new Error();
-        return r.json();
-      })
+    setLoadError(false);
+    loadStaticJson<Snapshot>(import.meta.env.BASE_URL + "data/search.json", ac.signal)
       .then(setSnapshot)
       .catch((e) => {
         if (e.name !== "AbortError") setLoadError(true);
       });
+    return () => ac.abort();
+  }, [loadAttempt]);
+  useEffect(() => {
     loadWorkspace()
       .then(setWorkspace)
       .catch(() => setStorageError(true))
@@ -1204,7 +1235,6 @@ function App() {
     };
     window.addEventListener("hashchange", hash);
     return () => {
-      ac.abort();
       window.removeEventListener("hashchange", hash);
     };
   }, []);
@@ -1360,7 +1390,7 @@ function App() {
     [base, filters, tab, sort],
   );
   const picked = stays.find((s) => s.id === selected),
-    confirmedCount = filtered.filter(confirmed).length,
+    confirmedCount = filtered.filter((s) => confirmed(s) && !filterChecks(s, effective).length).length,
     activeCount =
       Object.keys(filters.rules).length +
       Number(filters.ratingMin !== null) +
@@ -1403,7 +1433,7 @@ function App() {
       <header className="app-header">
         <a className="brand" href={import.meta.env.BASE_URL}>
           <span className="brand-symbol">
-            <House size={22} />
+            <img src={logo} width="38" height="38" alt="" />
           </span>
           <span>paris stays</span>
         </a>
@@ -1580,12 +1610,16 @@ function App() {
             <div className="criteria-line">
               <span>
                 <BedDouble size={13} aria-hidden="true" />
-                {MIN_PROPER_BEDS}+ proper beds
+                {filters.rules.properBeds?.min ?? MIN_PROPER_BEDS}+ proper beds
               </span>
               <span>
                 <Toilet size={13} aria-hidden="true" />
-                2+ WCs
+                {filters.rules.toilets?.min ?? 2}+ WCs
               </span>
+              {filters.rules.bedrooms?.min !== undefined && <span>
+                <DoorOpen size={13} aria-hidden="true" />
+                {filters.rules.bedrooms.min}+ bedrooms
+              </span>}
               <span>
                 <Receipt size={13} aria-hidden="true" />
                 £2,500 total max
@@ -1646,7 +1680,7 @@ function App() {
             <div className="results-meta">
               <div aria-live="polite" aria-atomic="true">
                 <strong>
-                  {filtered.length} {filtered.length === 1 ? "home" : "homes"}
+                  {snapshot ? `${filtered.length} ${filtered.length === 1 ? "home" : "homes"}` : "Loading homes"}
                 </strong>
                 <span className="snapshot-counts">
                   {snapshot ? (
@@ -1703,13 +1737,22 @@ function App() {
                   Check your connection, then reload. Saved notes remain in this
                   browser.
                 </p>
-                <button onClick={() => location.reload()}>Reload search</button>
+                <button onClick={() => setLoadAttempt((n) => n + 1)}>Try again</button>
               </div>
             )}
             {!snapshot && !loadError && (
-              <div className="skeleton-list" aria-label="Loading homes">
+              <div className="skeleton-list" role="status" aria-label="Loading homes">
                 {[1, 2, 3].map((n) => (
-                  <div key={n} />
+                  <div className="skeleton-card" key={n} aria-hidden="true">
+                    <div className="skeleton-photo" />
+                    <div className="skeleton-content">
+                      <span className="skeleton-line short" />
+                      <span className="skeleton-line title" />
+                      <span className="skeleton-line" />
+                      <span className="skeleton-line" />
+                      <span className="skeleton-line short bottom" />
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -1749,7 +1792,7 @@ function App() {
               </div>
             )}
             <div className="home-list">
-              {filtered.slice(0, limit).map((s) => (
+              {filtered.slice(0, limit).map((s, i) => (
                 <StayCard
                   key={s.id}
                   stay={s}
@@ -1759,7 +1802,11 @@ function App() {
                   onSave={() => save(s.id)}
                   onHide={() => hide(s.id)}
                   onCompare={() => toggleCompare(s.id)}
-                  onHover={setHovered}
+                  onHover={(id) => {
+                    if (window.matchMedia("(min-width: 781px)").matches) setHovered(id);
+                  }}
+                  eager={i === 0}
+                  filters={effective}
                 />
               ))}
             </div>
@@ -1785,14 +1832,8 @@ function App() {
             )}
           </div>
         </main>
-        <Suspense
-          fallback={
-            <div className="map-loading">
-              <MapPin size={30} />
-              Loading Paris map…
-            </div>
-          }
-        >
+        <MapBoundary>
+        {snapshot ? <Suspense fallback={<MapLoading />}>
           <StayMap
             stays={filtered}
             hovered={hovered}
@@ -1817,7 +1858,8 @@ function App() {
             mapFiltered={!!filters.bounds}
             sheet={sheet}
           />
-        </Suspense>
+        </Suspense> : <MapLoading />}
+        </MapBoundary>
       </div>
       {compare.length > 0 && (
         <div className="compare-bar">
@@ -1849,6 +1891,7 @@ function App() {
         <StayDetails
           key={picked.id}
           stay={picked}
+          filters={effective}
           record={workspace.records[picked.id]}
           onClose={() => setSelected(null)}
           onSave={() => save(picked.id)}

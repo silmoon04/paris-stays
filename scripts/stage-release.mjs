@@ -15,8 +15,12 @@ const allowed = [
   ".gitignore",
   "README.md",
   "DESIGN.md",
+  "ASSETS.md",
   ".github/workflows/pages.yml",
   "public/favicon.svg",
+  "src/assets/outfit-latin-variable.woff2",
+  "src/assets/Outfit-OFL.txt",
+  "src/assets/paris-stays-mark.png",
 ];
 async function sourceFiles(folder) {
   for (const entry of await readdir(path.join(root, folder), {

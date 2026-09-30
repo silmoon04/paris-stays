@@ -4,6 +4,8 @@ import {
   value,
   fact,
   quoteMatchesTrip,
+  checks,
+  FACT_LABELS,
   type Stay,
   type Fact,
 } from "./domain";
@@ -29,7 +31,11 @@ export const DEFAULT_FILTERS: Filters = {
   priceMax: 2500,
   ratingMin: null,
   minReviews: null,
-  rules: {},
+  rules: {
+    properBeds: { min: 4 },
+    toilets: { min: 3 },
+    bedrooms: { min: 3 },
+  },
 };
 export function passes(
   v: Fact["value"] | null | undefined,
@@ -46,7 +52,12 @@ export function passes(
   );
 }
 export function ruleValue(s: Stay, key: string, r: Rule) {
-  const v = value(s, key);
+  const v = value(s, key) ??
+    (key === "bedrooms" && !fact(s, key) ? s.bedrooms ?? undefined : undefined);
+  if (
+    key === "properBeds" && r.min !== undefined &&
+    s.advertisedBeds !== null && s.advertisedBeds < r.min
+  ) return s.advertisedBeds;
   if (fact(s, key)?.extent === "at-least" && typeof v === "number") {
     if (
       (r.min !== undefined && r.min > v) ||
@@ -56,6 +67,17 @@ export function ruleValue(s: Stay, key: string, r: Rule) {
   }
   return v;
 }
+export function filterChecks(s: Stay, f: Filters) {
+  const missing = checks(s);
+  for (const [key, rule] of Object.entries(f.rules)) {
+    if ((rule.min !== undefined || rule.max !== undefined || rule.eq !== undefined) &&
+      ruleValue(s, key, rule) === undefined) {
+      const label = key === "toilets" ? "Toilet count" : FACT_LABELS[key] ?? key;
+      if (!missing.includes(label)) missing.push(label);
+    }
+  }
+  return missing;
+}
 export function matches(s: Stay, f: Filters, omit?: string) {
   if (
     (f.zone === "all" && !s.zones.length) ||
@@ -64,7 +86,13 @@ export function matches(s: Stay, f: Filters, omit?: string) {
   )
     return false;
   if (!f.includeExcluded && contradictions(s).length) return false;
-  if (f.onlyConfirmed && !confirmed(s)) return false;
+  if (
+    f.onlyConfirmed &&
+    (!confirmed(s) ||
+      Object.entries(f.rules).some(
+        ([key, rule]) => key !== omit && !passes(ruleValue(s, key, rule), rule, false),
+      ))
+  ) return false;
   if (
     f.bounds &&
     (s.lat === null ||
